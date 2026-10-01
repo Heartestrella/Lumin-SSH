@@ -100,7 +100,7 @@ export default function ShortcutsTab({ shortcuts, listeningKey, onSetListeningKe
                   onClick={() => updateAltHistoryScope('input')}
                   className={cn('px-2 py-1 rounded-[3px] text-sm transition-colors duration-[120ms]', altHistoryScope === 'input' ? 'bg-accent text-white' : 'text-tertiary hover:bg-hover')}
                 >
-                  仅聚焦命令输入框时
+                  {$t('仅聚焦命令输入框时')}
                 </button>
               </div>
             </div>

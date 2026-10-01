@@ -172,9 +172,9 @@ export function MemorySection({
     };
   }, [active, mode, sessionId]);
   const memItems = [
-    { dot: 'var(--danger)', label: t('已用'), val: fmem(info.memUsed || 0) },
-    { dot: 'var(--warning)', label: t('缓存'), val: fmem(info.memCache || 0) },
-    { dot: 'var(--success)', label: t('空闲'), val: fmem(info.memFree || 0) },
+    { id: 'used', dot: 'var(--danger)', label: t('已用'), val: fmem(info.memUsed || 0) },
+    { id: 'cache', dot: 'var(--warning)', label: t('缓存'), val: fmem(info.memCache || 0) },
+    { id: 'free', dot: 'var(--success)', label: t('空闲'), val: fmem(info.memFree || 0) },
   ];
   const detailItems = useMemo(() => {
     const total = Math.max(info.memTotal || 0, 0);
@@ -184,6 +184,7 @@ export function MemorySection({
       const value = Math.min(Math.max(process.mem || 0, 0), remainingUsed);
       remainingUsed -= value;
       return {
+        id: process.pid ? `process-${process.pid}` : `process-index-${index}`,
         label: process.cmd || `${t('进程')} ${index + 1}`,
         value,
         color: ['var(--accent)', 'var(--info)', 'var(--danger)', 'var(--warning)', 'var(--success)'][index],
@@ -195,9 +196,9 @@ export function MemorySection({
     const free = Math.max(total - used - reclaimable, 0);
     return [
       ...topProcesses,
-      { label: '其余进程与内核', value: remainingUsed, color: 'var(--warning)', description: '未进入前五名的进程 RSS，以及内核不可回收内存。' },
-      { label: t('缓存'), value: reclaimable, color: 'var(--success)', description: '文件缓存、缓冲区和可回收 Slab。' },
-      { label: t('空闲'), value: free, color: 'var(--text-tertiary)', description: '当前未被使用的物理内存。' },
+      { id: 'remaining', label: '其余进程与内核', value: remainingUsed, color: 'var(--warning)', description: '未进入前五名的进程 RSS，以及内核不可回收内存。' },
+      { id: 'reclaimable', label: t('缓存'), value: reclaimable, color: 'var(--success)', description: '文件缓存、缓冲区和可回收 Slab。' },
+      { id: 'free', label: t('空闲'), value: free, color: 'var(--text-tertiary)', description: '当前未被使用的物理内存。' },
     ].filter((item) => item.value > 0);
   }, [detailProcesses, info.memFree, info.memTotal, info.memUsed, t]);
   const swapPct = (info.swapTotal || 0) > 0 ? clampPct(((info.swapUsed || 0) / (info.swapTotal || 1)) * 100) : 0;
@@ -243,8 +244,8 @@ export function MemorySection({
           </div>
           <ProgressBar value={memPct} color={pctColor(memPct, 60, 85)} />
           <div className="probe-legend-list">
-            {(mode === 'detail' ? detailItems.map(({ color, label, value }) => ({ dot: color, label, val: fmem(value) })) : memItems).map(({ dot, label, val }) => (
-              <div key={label} className="probe-legend-row">
+            {(mode === 'detail' ? detailItems.map(({ id, color, label, value }) => ({ id, dot: color, label, val: fmem(value) })) : memItems).map(({ id, dot, label, val }) => (
+              <div key={id} className="probe-legend-row">
                 <span className="probe-dot" style={{ background: dot }} />
                 <span>{label}</span>
                 <b>{val}</b>

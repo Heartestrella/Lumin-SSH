@@ -225,6 +225,7 @@ export const MemDonut = React.memo(function MemDonut({
 });
 
 export interface MemoryBreakdownItem {
+  id: string;
   label: string;
   value: number;
   color: string;
@@ -264,7 +265,7 @@ export const MemoryBreakdownDonut = React.memo(function MemoryBreakdownDonut({
         cursor += visibleLength + gap;
         return (
           <circle
-            key={item.label}
+            key={item.id}
             cx={cx}
             cy={cy}
             r={r}
