@@ -153,6 +153,42 @@ func TestGatewayModelsAndResponsesSSE(t *testing.T) {
 	}
 }
 
+func TestGatewayUsesResolvedSessionContext(t *testing.T) {
+	localCWD := t.TempDir()
+	var captured ExecRequest
+	runner := mockRunner{run: func(_ context.Context, request ExecRequest, _ func(string) error) (ExecResult, error) {
+		captured = request
+		return ExecResult{}, nil
+	}}
+	gateway := NewGateway(runner, "fallback", 1)
+	gateway.SetSessionContextResolver(func(sessionID string) SessionContext {
+		if sessionID != "terminal-42" {
+			t.Fatalf("resolver session ID = %q", sessionID)
+		}
+		return SessionContext{LocalWorkingDirectory: localCWD, RemoteWorkingDirectory: "/srv/project"}
+	})
+	baseURL, err := gateway.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gateway.Close(context.Background())
+	req, _ := http.NewRequest(http.MethodPost, baseURL+"/responses", strings.NewReader(`{"input":"inspect"}`))
+	req.Header.Set("X-LumeTerm-Session-ID", "terminal-42")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+	if captured.WorkingDir != localCWD {
+		t.Fatalf("Codex -C directory = %q, want %q", captured.WorkingDir, localCWD)
+	}
+	if !strings.Contains(captured.Prompt, `Remote working directory (quoted): "/srv/project"`) || !strings.Contains(captured.Prompt, "[USER]\ninspect") {
+		t.Fatalf("resolved prompt context missing: %q", captured.Prompt)
+	}
+	t.Logf("resolved Codex ExecRequest working_dir=%q", captured.WorkingDir)
+}
+
 func TestGatewaySerializesSameSession(t *testing.T) {
 	var active, maximum atomic.Int32
 	release := make(chan struct{})
@@ -200,19 +236,73 @@ func TestGatewaySerializesSameSession(t *testing.T) {
 	wg.Wait()
 }
 
+func TestGatewayCanceledRequestStopsWaitingForSession(t *testing.T) {
+	gateway := NewGateway(mockRunner{}, ".", 2)
+	unlockFirst, ok := gateway.lockSession(context.Background(), "same")
+	if !ok {
+		t.Fatal("first lock was not acquired")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	secondDone := make(chan bool, 1)
+	go func() {
+		_, acquired := gateway.lockSession(ctx, "same")
+		secondDone <- acquired
+	}()
+	deadline := time.Now().Add(time.Second)
+	for {
+		gateway.sessionsMu.Lock()
+		entry := gateway.sessions["same"]
+		refs := 0
+		if entry != nil {
+			refs = entry.refs
+		}
+		gateway.sessionsMu.Unlock()
+		if refs == 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("second request did not begin waiting on the session lock")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	cancel()
+	select {
+	case acquired := <-secondDone:
+		if acquired {
+			t.Fatal("canceled waiter acquired the session lock")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("canceled request remained blocked on the session lock")
+	}
+	unlockFirst()
+	gateway.sessionsMu.Lock()
+	remaining := len(gateway.sessions)
+	gateway.sessionsMu.Unlock()
+	if remaining != 0 {
+		t.Fatalf("session lock entries remaining = %d", remaining)
+	}
+}
+
 func TestRealCodexGatewaySmoke(t *testing.T) {
 	executable := strings.TrimSpace(os.Getenv("CODEX_INTEGRATION_EXE"))
 	if executable == "" {
 		t.Skip("set CODEX_INTEGRATION_EXE to run the real Codex gateway smoke test")
 	}
 	gateway := NewGateway(nativeExecRunner{executable: executable, readOnly: true}, ".", 1)
+	sessionCWD := t.TempDir()
+	gateway.SetSessionContextResolver(func(sessionID string) SessionContext {
+		return SessionContext{LocalWorkingDirectory: sessionCWD}
+	})
 	baseURL, err := gateway.Start()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer gateway.Close(context.Background())
 	body := `{"model":"gpt-5.6-sol","reasoning":{"effort":"medium"},"input":"Only output LUME_HTTP_GATEWAY_OK. Do not use tools."}`
-	response, err := http.Post(baseURL+"/responses", "application/json", strings.NewReader(body))
+	request, _ := http.NewRequest(http.MethodPost, baseURL+"/responses", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-LumeTerm-Session-ID", "integration-terminal")
+	response, err := http.DefaultClient.Do(request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,5 +312,5 @@ func TestRealCodexGatewaySmoke(t *testing.T) {
 	if response.StatusCode != http.StatusOK || !strings.Contains(data.String(), "LUME_HTTP_GATEWAY_OK") || !strings.Contains(data.String(), "response.completed") {
 		t.Fatalf("unexpected gateway response (%d): %s", response.StatusCode, data.String())
 	}
-	t.Logf("real gateway SSE: %s", data.String())
+	t.Logf("real gateway session working_dir=%q SSE: %s", sessionCWD, data.String())
 }

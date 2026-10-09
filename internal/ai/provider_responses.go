@@ -254,6 +254,9 @@ func (a *Service) requestResponsesAIChatRound(ctx context.Context, requestID str
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 	}
 	aiprovider.ApplyCustomHeaders(req.Header, runtimeProfile.CustomHeaders)
+	if sessionID := strings.TrimSpace(payload.SessionID); sessionID != "" && a.isBuiltinCodexBridgeURL(profile.BaseURL) {
+		req.Header.Set("X-LumeTerm-Session-ID", sessionID)
+	}
 
 	client, err := a.newAINeverTimeoutHTTPClientForProfile(&profile)
 	if err != nil {

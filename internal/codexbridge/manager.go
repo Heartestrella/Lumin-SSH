@@ -50,6 +50,7 @@ type Manager struct {
 	homeDir    func() (string, error)
 	newGateway func(string, string) *Gateway
 	gateway    *Gateway
+	resolver   SessionContextResolver
 }
 
 func NewManager() *Manager {
@@ -76,6 +77,21 @@ func (m *Manager) Status() Status {
 	return m.status
 }
 func (m *Manager) BaseURL() string { return m.Status().BaseURL }
+
+// SetSessionContextResolver supplies terminal working directories to every
+// managed gateway, including gateways created by a later Apply or Refresh.
+func (m *Manager) SetSessionContextResolver(resolve SessionContextResolver) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	m.resolver = resolve
+	gateway := m.gateway
+	m.mu.Unlock()
+	if gateway != nil {
+		gateway.SetSessionContextResolver(resolve)
+	}
+}
 
 func (m *Manager) Apply(c Config) {
 	if m == nil {
@@ -164,6 +180,10 @@ func (m *Manager) ensure(generation uint64, c Config) {
 		return
 	}
 	gateway := m.newGateway(executable, c.WorkingDirectory)
+	m.mu.Lock()
+	resolver := m.resolver
+	m.mu.Unlock()
+	gateway.SetSessionContextResolver(resolver)
 	baseURL, err := gateway.Start()
 	if err != nil {
 		m.finish(generation, Status{State: "error", Enabled: true, BaseURL: c.BaseURL, ExecutablePath: executable, InstallURL: installURL, Message: "Codex 内置网关启动失败：" + err.Error()})
@@ -177,6 +197,8 @@ func (m *Manager) ensure(generation uint64, c Config) {
 		cancel()
 		return
 	}
+	// A resolver may have been replaced while the gateway was starting.
+	gateway.SetSessionContextResolver(m.resolver)
 	m.gateway = gateway
 	m.status = Status{State: "running", Enabled: true, Managed: true, BaseURL: baseURL, ExecutablePath: executable, InstallURL: installURL, Message: "内置 HTTP 网关运行中（Codex exec）"}
 	m.mu.Unlock()

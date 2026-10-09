@@ -26,6 +26,16 @@ type ExecRunner interface {
 	Run(context.Context, ExecRequest, func(string) error) (ExecResult, error)
 }
 
+// SessionContext is resolved by the host application from its authoritative
+// terminal-session registry. A remote directory is context for the model only:
+// it must never be passed to the local Codex process as -C.
+type SessionContext struct {
+	LocalWorkingDirectory  string
+	RemoteWorkingDirectory string
+}
+
+type SessionContextResolver func(sessionID string) SessionContext
+
 type nativeExecRunner struct {
 	executable string
 	readOnly   bool
@@ -51,7 +61,11 @@ func (r nativeExecRunner) Run(ctx context.Context, request ExecRequest, onText f
 	} else {
 		args = append(args, "--approve-for-me")
 	}
-	args = append(args, "--ephemeral", "--json", "-")
+	log.Printf("codex gateway: starting exec model=%s working_dir=%q", request.Model, request.WorkingDir)
+	// Terminal sessions commonly point at directories that are not Git
+	// repositories. The host has already validated -C as an existing local
+	// directory, so do not let the CLI's repository guard reject it.
+	args = append(args, "--skip-git-repo-check", "--ephemeral", "--json", "-")
 	cmd := exec.Command(r.executable, args...)
 	configureCommand(cmd)
 	cmd.Stdin = strings.NewReader(request.Prompt)
@@ -140,9 +154,11 @@ type Gateway struct {
 	semaphore  chan struct{}
 	sessionsMu sync.Mutex
 	sessions   map[string]*sessionLock
+	resolverMu sync.RWMutex
+	resolver   SessionContextResolver
 }
 type sessionLock struct {
-	mu   sync.Mutex
+	gate chan struct{}
 	refs int
 }
 
@@ -154,6 +170,25 @@ func NewGateway(runner ExecRunner, workingDir string, maxConcurrent int) *Gatewa
 		workingDir, _ = os.Getwd()
 	}
 	return &Gateway{runner: runner, workingDir: workingDir, semaphore: make(chan struct{}, maxConcurrent), sessions: make(map[string]*sessionLock)}
+}
+
+func (g *Gateway) SetSessionContextResolver(resolve SessionContextResolver) {
+	if g == nil {
+		return
+	}
+	g.resolverMu.Lock()
+	g.resolver = resolve
+	g.resolverMu.Unlock()
+}
+
+func (g *Gateway) sessionContext(sessionID string) SessionContext {
+	g.resolverMu.RLock()
+	resolve := g.resolver
+	g.resolverMu.RUnlock()
+	if resolve == nil || strings.TrimSpace(sessionID) == "" {
+		return SessionContext{}
+	}
+	return resolve(sessionID)
 }
 
 func (g *Gateway) Start() (string, error) {
@@ -236,8 +271,24 @@ func (g *Gateway) handleResponses(w http.ResponseWriter, r *http.Request) {
 	if sessionID == "" {
 		sessionID = strings.TrimSpace(request.PromptCacheKey)
 	}
-	unlock := g.lockSession(sessionID)
+	unlock, locked := g.lockSession(r.Context(), sessionID)
+	if !locked {
+		return
+	}
 	defer unlock()
+	terminalID := strings.TrimSpace(r.Header.Get("X-LumeTerm-Session-ID"))
+	sessionContext := g.sessionContext(terminalID)
+	workingDir := g.workingDir
+	if candidate := strings.TrimSpace(sessionContext.LocalWorkingDirectory); candidate != "" {
+		if info, statErr := os.Stat(candidate); statErr == nil && info.IsDir() {
+			workingDir = candidate
+		} else {
+			log.Printf("codex gateway: ignoring unavailable local session cwd session=%q cwd=%q err=%v", terminalID, candidate, statErr)
+		}
+	}
+	if remoteCWD := strings.TrimSpace(sessionContext.RemoteWorkingDirectory); remoteCWD != "" {
+		prompt = fmt.Sprintf("[LUMETERM TERMINAL CONTEXT]\nSession ID: %s\nRemote working directory (quoted): %q\nThe Codex process runs locally; do not treat this remote path as its local working directory.\n\n%s", terminalID, remoteCWD, prompt)
+	}
 	select {
 	case g.semaphore <- struct{}{}:
 		defer func() { <-g.semaphore }()
@@ -258,7 +309,7 @@ func (g *Gateway) handleResponses(w http.ResponseWriter, r *http.Request) {
 	var output strings.Builder
 	execCtx, cancel := context.WithTimeout(r.Context(), 30*time.Minute)
 	defer cancel()
-	result, runErr := g.runner.Run(execCtx, ExecRequest{model, effort, prompt, g.workingDir}, func(delta string) error {
+	result, runErr := g.runner.Run(execCtx, ExecRequest{model, effort, prompt, workingDir}, func(delta string) error {
 		output.WriteString(delta)
 		if err := writeSSE(w, map[string]any{"type": "response.output_text.delta", "delta": delta}); err != nil {
 			return err
@@ -286,27 +337,37 @@ func (g *Gateway) handleResponses(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 }
 
-func (g *Gateway) lockSession(id string) func() {
+func (g *Gateway) lockSession(ctx context.Context, id string) (func(), bool) {
 	if id == "" {
-		return func() {}
+		return func() {}, true
 	}
 	g.sessionsMu.Lock()
 	entry := g.sessions[id]
 	if entry == nil {
-		entry = &sessionLock{}
+		entry = &sessionLock{gate: make(chan struct{}, 1)}
+		entry.gate <- struct{}{}
 		g.sessions[id] = entry
 	}
 	entry.refs++
 	g.sessionsMu.Unlock()
-	entry.mu.Lock()
-	return func() {
-		entry.mu.Unlock()
-		g.sessionsMu.Lock()
-		entry.refs--
-		if entry.refs == 0 {
-			delete(g.sessions, id)
-		}
-		g.sessionsMu.Unlock()
+	select {
+	case <-entry.gate:
+		return func() {
+			entry.gate <- struct{}{}
+			g.releaseSessionLock(id, entry)
+		}, true
+	case <-ctx.Done():
+		g.releaseSessionLock(id, entry)
+		return nil, false
+	}
+}
+
+func (g *Gateway) releaseSessionLock(id string, entry *sessionLock) {
+	g.sessionsMu.Lock()
+	defer g.sessionsMu.Unlock()
+	entry.refs--
+	if entry.refs == 0 && g.sessions[id] == entry {
+		delete(g.sessions, id)
 	}
 }
 

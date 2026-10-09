@@ -35,6 +35,26 @@ func TestBuildShellLaunchCommandSkipsMarkersInMultiplexers(t *testing.T) {
 	}
 }
 
+func TestSessionWorkingDirectoriesClassifiesTerminalKind(t *testing.T) {
+	manager := NewSSHManager()
+	manager.sessions["local"] = &SessionData{IsLocal: true, CurrentCwd: `C:\work\local`}
+	manager.sessions["ssh"] = &SessionData{CurrentCwd: "/srv/ssh"}
+	manager.sessions["wsl"] = &SessionData{IsLocal: true, WSLDistro: "Ubuntu", CurrentCwd: "/home/wsl"}
+
+	local, remote := manager.SessionWorkingDirectories("local")
+	if local != `C:\work\local` || remote != "" {
+		t.Fatalf("local directories = %q, %q", local, remote)
+	}
+	local, remote = manager.SessionWorkingDirectories("ssh")
+	if local != "" || remote != "/srv/ssh" {
+		t.Fatalf("SSH directories = %q, %q", local, remote)
+	}
+	local, remote = manager.SessionWorkingDirectories("wsl")
+	if local != "" || remote != "/home/wsl" {
+		t.Fatalf("WSL directories = %q, %q", local, remote)
+	}
+}
+
 func TestParseProbeOutputSkipsLocalizedDFHeader(t *testing.T) {
 	out := strings.Join([]string{
 		"1 0 0",

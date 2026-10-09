@@ -176,6 +176,13 @@ func (a *App) startup(ctx context.Context) {
 	a.sshManager.SetCtx(ctx) // Give SSH manager access to Wails events
 	a.sshManager.SetApp(a)   // Give SSH manager access to WebSocket registry
 	a.configManager.SetWailsCtx(ctx)
+	a.codexBridge.SetSessionContextResolver(func(sessionID string) codexbridge.SessionContext {
+		localCWD, remoteCWD := a.sshManager.SessionWorkingDirectories(sessionID)
+		return codexbridge.SessionContext{
+			LocalWorkingDirectory:  localCWD,
+			RemoteWorkingDirectory: remoteCWD,
+		}
+	})
 	aiSettings := a.configManager.GetAIGlobalSettings()
 	a.codexBridge.Apply(codexbridge.Config{Enabled: aiSettings.CodexBridgeEnabled, BaseURL: aiSettings.CodexBridgeBaseURL, ExecutablePath: aiSettings.CodexExecutablePath})
 	a.sshManager.ApplyTransferTuning(a.configManager.GetTransferTuningSettings())

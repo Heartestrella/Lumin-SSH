@@ -136,6 +136,14 @@ func (a *Service) SetCodexBridgeBaseURLResolver(resolve func() string) {
 	a.codexBridgeBaseURL = resolve
 }
 
+func (a *Service) isBuiltinCodexBridgeURL(baseURL string) bool {
+	if a == nil || a.codexBridgeBaseURL == nil {
+		return false
+	}
+	runtimeURL := strings.TrimRight(strings.TrimSpace(a.codexBridgeBaseURL()), "/")
+	return runtimeURL != "" && runtimeURL == strings.TrimRight(strings.TrimSpace(baseURL), "/")
+}
+
 func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	tmpFile := path + ".tmp"
 	file, err := os.OpenFile(tmpFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)

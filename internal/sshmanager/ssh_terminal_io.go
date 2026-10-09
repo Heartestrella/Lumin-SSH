@@ -290,6 +290,31 @@ func (m *SSHManager) GetTerminalCwd(sessionId string) (string, error) {
 	return cwd, nil
 }
 
+// SessionWorkingDirectories returns the latest CWD snapshot recorded for a
+// terminal ID. Native local paths can be used as a local process working
+// directory. SSH and WSL paths are remote context only on the Windows host.
+func (m *SSHManager) SessionWorkingDirectories(sessionID string) (localCWD, remoteCWD string) {
+	if m == nil || strings.TrimSpace(sessionID) == "" {
+		return "", ""
+	}
+	m.mu.RLock()
+	session, ok := m.sessions[sessionID]
+	if !ok || session == nil {
+		m.mu.RUnlock()
+		return "", ""
+	}
+	cwd := strings.TrimSpace(session.CurrentCwd)
+	isNativeLocal := session.IsLocal && strings.TrimSpace(session.WSLDistro) == ""
+	m.mu.RUnlock()
+	if cwd == "" {
+		return "", ""
+	}
+	if isNativeLocal {
+		return cwd, ""
+	}
+	return "", cwd
+}
+
 // getLocalCwdForSession returns the CWD for a local terminal session by
 // querying the OS process tree (platform-specific implementation).
 func (m *SSHManager) getLocalCwdForSession(s *SessionData) (string, error) {
@@ -331,12 +356,16 @@ func getLocalFullProcessList(s *SessionData) ([]map[string]interface{}, error) {
 // StartLocalCwdMonitor starts a background polling loop to track the CWD of local sessions
 // (WSL and Unix shells) and notify the frontend of updates.
 func (m *SSHManager) StartLocalCwdMonitor(sessionId string) {
+	var managerDone <-chan struct{}
+	if m.ctx != nil {
+		managerDone = m.ctx.Done()
+	}
 	go func() {
 		ticker := time.NewTicker(1200 * time.Millisecond)
 		defer ticker.Stop()
 		for {
 			select {
-			case <-m.ctx.Done():
+			case <-managerDone:
 				return
 			case <-ticker.C:
 				m.mu.RLock()
