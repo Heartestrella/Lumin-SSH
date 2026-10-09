@@ -69,15 +69,15 @@ function formatTime(ts: number): string {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
-function resolveApproval(requestId: string, approved: boolean) {
-  try {
-    const w = window as unknown as {
-      go?: { wailsapp?: { App?: { ResolveMCPApproval?: (id: string, a: boolean) => Promise<void> } } }
-    }
-    return w.go?.wailsapp?.App?.ResolveMCPApproval?.(requestId, approved)
-  } catch {
-    // ignore
+async function resolveApproval(requestId: string, approved: boolean): Promise<void> {
+  const w = window as unknown as {
+    go?: { wailsapp?: { App?: { ResolveMCPApproval?: (id: string, a: boolean) => Promise<void> } } }
   }
+  const resolver = w.go?.wailsapp?.App?.ResolveMCPApproval
+  if (typeof resolver !== 'function') {
+    throw new Error('MCP approval bridge is unavailable')
+  }
+  await resolver.call(w.go?.wailsapp?.App, requestId, approved)
 }
 
 export interface MCPActivityPanelProps {
@@ -121,6 +121,8 @@ export default function MCPActivityPanel({ height = '100%', onClose, onApprovalR
   const [activities, setActivities] = useState<ActivityMap>(new Map())
   const activitiesRef = useRef<ActivityMap>(new Map())
   const [autoScroll, setAutoScroll] = useState(true)
+  const [resolvingApprovals, setResolvingApprovals] = useState<Set<string>>(() => new Set())
+  const [approvalErrors, setApprovalErrors] = useState<Map<string, string>>(() => new Map())
   const scrollRef = useRef<HTMLDivElement>(null)
   const cardOrderRef = useRef<string[]>([])
   const onApprovalRequiredRef = useRef(onApprovalRequired)
@@ -139,6 +141,12 @@ export default function MCPActivityPanel({ height = '100%', onClose, onApprovalR
         existing.events.push(payload)
         if (payload.status === 'approved' || payload.status === 'rejected' || payload.status === 'timed_out') {
           existing.resolved = true
+          setApprovalErrors((current) => {
+            if (!current.has(payload.requestId)) return current
+            const next = new Map(current)
+            next.delete(payload.requestId)
+            return next
+          })
         }
       } else {
         const resolved = payload.status === 'approved' || payload.status === 'rejected' || payload.status === 'timed_out'
@@ -146,7 +154,21 @@ export default function MCPActivityPanel({ height = '100%', onClose, onApprovalR
         cardOrderRef.current.unshift(payload.requestId)
         if (cardOrderRef.current.length > 50) {
           const removed = cardOrderRef.current.pop()
-          if (removed) map.delete(removed)
+          if (removed) {
+            map.delete(removed)
+            setResolvingApprovals((current) => {
+              if (!current.has(removed)) return current
+              const next = new Set(current)
+              next.delete(removed)
+              return next
+            })
+            setApprovalErrors((current) => {
+              if (!current.has(removed)) return current
+              const next = new Map(current)
+              next.delete(removed)
+              return next
+            })
+          }
         }
       }
       if (payload.status === 'approval_required') {
@@ -167,6 +189,33 @@ export default function MCPActivityPanel({ height = '100%', onClose, onApprovalR
     if (!scrollRef.current) return
     setAutoScroll(scrollRef.current.scrollTop < 50)
   }, [])
+
+  const handleResolveApproval = useCallback(async (requestId: string, approved: boolean, card: ActivityCard) => {
+    setResolvingApprovals((current) => new Set(current).add(requestId))
+    setApprovalErrors((current) => {
+      const next = new Map(current)
+      next.delete(requestId)
+      return next
+    })
+    try {
+      await resolveApproval(requestId, approved)
+      card.resolved = true
+      flushState()
+    } catch (error) {
+      if (activitiesRef.current.has(requestId)) {
+        setApprovalErrors((current) => new Map(current).set(
+          requestId,
+          error instanceof Error ? error.message : String(error),
+        ))
+      }
+    } finally {
+      setResolvingApprovals((current) => {
+        const next = new Set(current)
+        next.delete(requestId)
+        return next
+      })
+    }
+  }, [flushState])
 
   const cards = cardOrderRef.current
     .filter((id) => activities.has(id))
@@ -223,6 +272,8 @@ export default function MCPActivityPanel({ height = '100%', onClose, onApprovalR
             const color = statusColors[latest.status] || '#888'
             const clientColor = clientColors[first.clientName] || '#888'
             const needsApproval = latest.status === 'approval_required' && !card.resolved
+            const resolvingApproval = resolvingApprovals.has(first.requestId)
+            const approvalError = approvalErrors.get(first.requestId)
 
             return (
               <div
@@ -290,31 +341,30 @@ export default function MCPActivityPanel({ height = '100%', onClose, onApprovalR
 
                 {/* Approval buttons */}
                 {needsApproval && (
-                  <div className="flex gap-2 mt-2">
-                    <Button
-                      variant="success"
-                      size="sm"
-                      block
-                      onClick={() => {
-                        resolveApproval(first.requestId, true)
-                        card.resolved = true
-                        flushState()
-                      }}
-                    >
-                      {t('批准')}
-                    </Button>
-                    <Button
-                      variant="danger"
-                      size="sm"
-                      block
-                      onClick={() => {
-                        resolveApproval(first.requestId, false)
-                        card.resolved = true
-                        flushState()
-                      }}
-                    >
-                      {t('拒绝')}
-                    </Button>
+                  <div className="mt-2">
+                    {approvalError && (
+                      <div className="mb-1.5 text-[10px] text-danger break-all">{approvalError}</div>
+                    )}
+                    <div className="flex gap-2">
+                      <Button
+                        variant="success"
+                        size="sm"
+                        block
+                        disabled={resolvingApproval}
+                        onClick={() => { void handleResolveApproval(first.requestId, true, card) }}
+                      >
+                        {t('批准')}
+                      </Button>
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        block
+                        disabled={resolvingApproval}
+                        onClick={() => { void handleResolveApproval(first.requestId, false, card) }}
+                      >
+                        {t('拒绝')}
+                      </Button>
+                    </div>
                   </div>
                 )}
               </div>

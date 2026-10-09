@@ -33,6 +33,8 @@ export function useAIPanelSettingsState({ t, isWorkspaceTabActive, panelMountedR
   const [temporarySessionEnabled, setTemporarySessionEnabled] = useState(false)
   const [themeToolPreview, setThemeToolPreview] = useState<unknown>(null)
   const [globalAISettings, setGlobalAISettings] = useState<AIGlobalSettings | null>(null)
+  const globalAISettingsRef = useRef<AIGlobalSettings | null>(null)
+  const globalAISettingsSaveSequenceRef = useRef(0)
   const [terminalOutputLineLimit, setTerminalOutputLineLimit] = useState(500)
   const [terminalOutputCharacterLimit, setTerminalOutputCharacterLimit] = useState(35000)
   const [providerBalanceRefreshSignal, setProviderBalanceRefreshSignal] = useState(0)
@@ -130,6 +132,9 @@ export function useAIPanelSettingsState({ t, isWorkspaceTabActive, panelMountedR
     resetConversationSearchState()
   }, [isWorkspaceTabActive, resetConversationSearchState, resetGlobalSearchState])
   const normalizedGlobalAISettings = useMemo(() => normalizeAIGlobalSettings(globalAISettings), [globalAISettings])
+  useEffect(() => {
+    globalAISettingsRef.current = globalAISettings
+  }, [globalAISettings])
   const playAISound = useCallback((type: string) => {
     if (normalizedGlobalAISettings.soundEnabled === false) {
       return
@@ -208,15 +213,31 @@ export function useAIPanelSettingsState({ t, isWorkspaceTabActive, panelMountedR
     return () => window.removeEventListener('ai-global-settings-changed', handleGlobalAISettingsChanged)
   }, [])
   const handleSaveAIPanelGlobalSettings = useCallback(async (patch: Record<string, unknown>) => {
-    const nextSettings = await saveAIGlobalSettings({
-      ...normalizedGlobalAISettings,
+    // Merge against the latest requested value, not the render-time closure:
+    // toggle + URL blur can otherwise race and the latter overwrites the former.
+    const requestedSettings = normalizeAIGlobalSettings({
+      ...normalizeAIGlobalSettings(globalAISettingsRef.current),
       ...patch,
     })
-    setGlobalAISettings(nextSettings)
-    window.dispatchEvent(new CustomEvent('ai-global-settings-changed', { detail: nextSettings }))
-    await refreshMCPServerInfo()
-    return nextSettings
-  }, [normalizedGlobalAISettings, refreshMCPServerInfo])
+    globalAISettingsRef.current = requestedSettings
+    const sequence = ++globalAISettingsSaveSequenceRef.current
+    try {
+      const nextSettings = await saveAIGlobalSettings(requestedSettings)
+      if (sequence === globalAISettingsSaveSequenceRef.current && panelMountedRef.current) {
+        setGlobalAISettings(nextSettings)
+        window.dispatchEvent(new CustomEvent('ai-global-settings-changed', { detail: nextSettings }))
+        await refreshMCPServerInfo()
+      }
+      return nextSettings
+    } catch (error) {
+      if (sequence === globalAISettingsSaveSequenceRef.current && panelMountedRef.current) {
+        const persistedSettings = await getAIGlobalSettings()
+        globalAISettingsRef.current = persistedSettings
+        setGlobalAISettings(persistedSettings)
+      }
+      throw error
+    }
+  }, [panelMountedRef, refreshMCPServerInfo])
   const handleSaveMCPGlobalServer = useCallback(async (name: string, configText: string) => {
     await saveMCPGlobalServer(name, configText)
     await refreshMCPServerInfo()

@@ -18,6 +18,8 @@ type Server struct {
 	listener  net.Listener
 	done      chan struct{}
 	wg        sync.WaitGroup
+	mu        sync.Mutex
+	conns     map[net.Conn]struct{}
 	closeOnce sync.Once
 	closeErr  error
 }
@@ -36,6 +38,15 @@ func (s *Server) Close() error {
 	s.closeOnce.Do(func() {
 		close(s.done)
 		s.closeErr = s.listener.Close()
+		s.mu.Lock()
+		connections := make([]net.Conn, 0, len(s.conns))
+		for conn := range s.conns {
+			connections = append(connections, conn)
+		}
+		s.mu.Unlock()
+		for _, conn := range connections {
+			_ = conn.Close()
+		}
 		s.wg.Wait()
 	})
 	return s.closeErr
@@ -227,7 +238,7 @@ func Start(mapPath func(string) string, listRoot func() ([]os.FileInfo, error)) 
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("listen: %w", err)
 	}
-	server := &Server{listener: listener, done: make(chan struct{})}
+	server := &Server{listener: listener, done: make(chan struct{}), conns: make(map[net.Conn]struct{})}
 	fs := &localFS{mapPath: mapPath, listRoot: listRoot}
 	server.wg.Add(1)
 	go func() {
@@ -237,7 +248,26 @@ func Start(mapPath func(string) string, listRoot func() ([]os.FileInfo, error)) 
 			if err != nil {
 				return
 			}
-			go serveConn(conn, serverConfig, fs)
+			server.mu.Lock()
+			select {
+			case <-server.done:
+				server.mu.Unlock()
+				_ = conn.Close()
+				return
+			default:
+			}
+			server.conns[conn] = struct{}{}
+			server.wg.Add(1)
+			server.mu.Unlock()
+			go func() {
+				defer server.wg.Done()
+				defer func() {
+					server.mu.Lock()
+					delete(server.conns, conn)
+					server.mu.Unlock()
+				}()
+				serveConn(conn, serverConfig, fs)
+			}()
 		}
 	}()
 

@@ -2,8 +2,26 @@ package mcpserver
 
 import (
 	"errors"
+	"sync"
 	"testing"
 )
+
+func TestServiceFollowLatestTerminalConcurrentAccess(t *testing.T) {
+	service := NewService(fakeSessionProvider{descriptors: []SessionDescriptor{{SessionID: "session"}}})
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(2)
+		go func(enabled bool) {
+			defer wg.Done()
+			service.SetFollowLatestTerminal(enabled)
+		}(i%2 == 0)
+		go func() {
+			defer wg.Done()
+			_, _ = service.GetConnectedSession("session")
+		}()
+	}
+	wg.Wait()
+}
 
 type fakeSessionProvider struct {
 	descriptors []SessionDescriptor

@@ -125,6 +125,7 @@ const DEFAULT_AI_GLOBAL_SETTINGS: AIGlobalSettings = {
 const VALID_APPROVAL_BUTTON_ORDERS = new Set(['reject-approve', 'approve-reject'])
 const VALID_COMMAND_ACTION_BUTTON_ORDERS = new Set(['terminate-continue', 'continue-terminate'])
 let cachedAIGlobalSettings: AIGlobalSettings | null = null
+let saveAIGlobalSettingsQueue: Promise<void> = Promise.resolve()
 
 export function getCachedAIGlobalSettings(): AIGlobalSettings | null {
   return cachedAIGlobalSettings
@@ -410,10 +411,18 @@ export async function saveAIGlobalSettings(settings: unknown): Promise<AIGlobalS
   const settingsToSave = { ...normalizedSettings } as Omit<AIGlobalSettings, 'proxyNodes'> & { proxyNodes?: ProxyNode[] }
   delete settingsToSave.proxyNodes
   const bridge = getAppBridge()
-  cachedAIGlobalSettings = normalizedSettings
   if (!bridge?.SaveAIGlobalSettings) {
+    cachedAIGlobalSettings = normalizedSettings
     return normalizedSettings
   }
-  await bridge.SaveAIGlobalSettings(JSON.stringify(settingsToSave))
-  return normalizedSettings
+  const save = saveAIGlobalSettingsQueue.then(async () => {
+    await bridge.SaveAIGlobalSettings(JSON.stringify(settingsToSave))
+    // Do not let a failed write poison the process cache with settings that
+    // were never persisted. The queue also makes last invocation win even
+    // when the bridge resolves concurrent writes out of order.
+    cachedAIGlobalSettings = normalizedSettings
+    return normalizedSettings
+  })
+  saveAIGlobalSettingsQueue = save.then(() => undefined, () => undefined)
+  return save
 }

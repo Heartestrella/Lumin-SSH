@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import * as AppGo from '../../../../wailsjs/go/wailsapp/App.js';
 import { EventsOn } from '../../../../wailsjs/runtime/runtime.js';
 import { t as $t } from '../../../i18n.ts';
@@ -15,6 +15,10 @@ export function useSyncMeta({ addToast }: { addToast: AddToast }) {
   // Auto sync mode
   const [syncMode, setSyncMode] = useState('webdav');
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(false);
+  const syncModeSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const autoSyncSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const syncModeRequestRef = useRef(0);
+  const autoSyncRequestRef = useRef(0);
 
   const refreshLastSyncTime = useCallback(async () => {
     try {
@@ -63,8 +67,32 @@ export function useSyncMeta({ addToast }: { addToast: AddToast }) {
     return () => { if (unbind) unbind(); };
   }, [refreshSyncMeta]);
 
-  const handleSyncModeChange = async (mode: string) => { setSyncMode(mode); try { await AppGo.SetSyncMode(mode); } catch (_) {} };
-  const handleAutoSyncEnabledChange = async (enabled: boolean) => { setAutoSyncEnabled(enabled); try { await AppGo.SetAutoSyncEnabled(enabled); } catch (_) {} };
+  const handleSyncModeChange = async (mode: string) => {
+    const request = ++syncModeRequestRef.current;
+    const save = syncModeSaveQueueRef.current.then(() => AppGo.SetSyncMode(mode));
+    syncModeSaveQueueRef.current = save.then(() => undefined, () => undefined);
+    try {
+      await save;
+      if (request === syncModeRequestRef.current) setSyncMode(mode);
+    } catch (error) {
+      if (request === syncModeRequestRef.current) {
+        addToast(`${$t('保存失败')}: ${error instanceof Error ? error.message : String(error)}`, 'error');
+      }
+    }
+  };
+  const handleAutoSyncEnabledChange = async (enabled: boolean) => {
+    const request = ++autoSyncRequestRef.current;
+    const save = autoSyncSaveQueueRef.current.then(() => AppGo.SetAutoSyncEnabled(enabled));
+    autoSyncSaveQueueRef.current = save.then(() => undefined, () => undefined);
+    try {
+      await save;
+      if (request === autoSyncRequestRef.current) setAutoSyncEnabled(enabled);
+    } catch (error) {
+      if (request === autoSyncRequestRef.current) {
+        addToast(`${$t('保存失败')}: ${error instanceof Error ? error.message : String(error)}`, 'error');
+      }
+    }
+  };
   const handlePruneSyncTombstones = async (days: number) => {
     const total = (syncTombstoneStats?.connections || 0) + (syncTombstoneStats?.credentials || 0);
     if (total <= 0) return;

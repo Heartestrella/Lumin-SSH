@@ -8,6 +8,7 @@ import (
 
 const oscCWDIntro = "\x1b]733;"
 const oscBEL byte = 0x07
+const oscPayloadMax = 64 * 1024
 
 type OSCCWDParser struct {
 	mu    sync.Mutex
@@ -46,8 +47,20 @@ func (p *OSCCWDParser) Process(chunk []byte) (visible []byte, cwd string, prompt
 			payloadStart := abs + len(oscCWDIntro)
 			end, terminatorLen := findOSCEnd(data[payloadStart:])
 			if end < 0 {
+				if len(data)-payloadStart > oscPayloadMax {
+					// A malformed/incomplete OSC must not grow carry forever. Once the
+					// payload cap is exceeded, expose it as ordinary terminal output and
+					// resume parsing subsequent chunks from a clean state.
+					out = append(out, data[abs:]...)
+					return out, "", false
+				}
 				p.carry = append(p.carry, data[abs:]...)
 				return out, "", false
+			}
+			if end > oscPayloadMax {
+				out = append(out, data[abs:payloadStart+end+terminatorLen]...)
+				i = payloadStart + end + terminatorLen
+				continue
 			}
 			payload := data[payloadStart : payloadStart+end]
 			cwd = decodeOSCWD(payload)

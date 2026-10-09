@@ -153,3 +153,23 @@ func TestOSCCWDParserConcurrentProcess(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestOSCCWDParserPayloadCapRecovers(t *testing.T) {
+	parser := NewOSCCWDParser()
+	partial := []byte(oscCWDIntro + strings.Repeat("A", oscPayloadMax/2))
+	visible, cwd, prompt := parser.Process(partial)
+	if len(visible) != 0 || cwd != "" || prompt {
+		t.Fatalf("partial marker should be buffered: visible=%d cwd=%q prompt=%v", len(visible), cwd, prompt)
+	}
+
+	overflow := bytes.Repeat([]byte("B"), oscPayloadMax)
+	visible, cwd, prompt = parser.Process(overflow)
+	if len(visible) != len(partial)+len(overflow) || cwd != "" || prompt {
+		t.Fatalf("overflow recovery: visible=%d want=%d cwd=%q prompt=%v", len(visible), len(partial)+len(overflow), cwd, prompt)
+	}
+
+	visible, _, _ = parser.Process([]byte("ok"))
+	if string(visible) != "ok" {
+		t.Fatalf("visible output after recovery = %q", visible)
+	}
+}

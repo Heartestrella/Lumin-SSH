@@ -50,6 +50,9 @@ func TestServerLoopbackFileOperationsAndClose(t *testing.T) {
 	if err := server.Close(); err != nil && !isClosedNetworkError(err) {
 		t.Fatal(err)
 	}
+	if _, err := client.Stat("/nested/renamed.txt"); err == nil {
+		t.Fatal("active SFTP client remained usable after server close")
+	}
 	if err := server.Close(); err != nil && !isClosedNetworkError(err) {
 		t.Fatal(err)
 	}

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"sort"
 	"strings"
+	"sync/atomic"
 )
 
 var ErrSessionProviderUnavailable = errors.New("session provider unavailable")
@@ -14,7 +15,7 @@ type Service struct {
 	// followLatestTerminal 开启后,外部 AI 对某服务器的操作自动解析到该服务器
 	// 最新打开的终端:既覆盖「同服务器另开了新终端」的场景,也在传入的旧 id
 	// 已失效但同组仍有存活终端时兜底,避免 AI 卡在过期的 session_id 上。
-	followLatestTerminal bool
+	followLatestTerminal atomic.Bool
 }
 
 func NewService(sessionProvider SessionProvider) *Service {
@@ -26,7 +27,7 @@ func (s *Service) SetFollowLatestTerminal(enabled bool) {
 	if s == nil {
 		return
 	}
-	s.followLatestTerminal = enabled
+	s.followLatestTerminal.Store(enabled)
 }
 
 func (s *Service) ListConnectedSessions() ([]ConnectedSession, error) {
@@ -44,14 +45,14 @@ func (s *Service) ListConnectedSessions() ([]ConnectedSession, error) {
 			groupSessionID = descriptor.SessionID
 		}
 		result = append(result, ConnectedSession{
-			SessionID: descriptor.SessionID,
-			GroupSessionID: groupSessionID,
-			ConnectionRef: descriptor.ConnectionRef,
-			ConnectionID: descriptor.ConnectionID,
-			Address: descriptor.Address,
-			Tags: append([]string(nil), descriptor.Tags...),
-			SFTPAvailable: descriptor.SFTPAvailable,
-			IsChildTerminal: descriptor.GroupSessionID != "",
+			SessionID:        descriptor.SessionID,
+			GroupSessionID:   groupSessionID,
+			ConnectionRef:    descriptor.ConnectionRef,
+			ConnectionID:     descriptor.ConnectionID,
+			Address:          descriptor.Address,
+			Tags:             append([]string(nil), descriptor.Tags...),
+			SFTPAvailable:    descriptor.SFTPAvailable,
+			IsChildTerminal:  descriptor.GroupSessionID != "",
 			IsLatestTerminal: descriptor.IsLatestTerminal,
 		})
 	}
@@ -82,7 +83,7 @@ func (s *Service) GetConnectedSession(sessionID string) (ConnectedSession, error
 	// 解析到该组最新终端。两条反查路径:①它曾是某组父会话(存活子终端指向它);
 	// ②它是已关闭子终端,由宿主的「最近关闭终端 → 连接」映射还原分组。
 	// 均不命中时保留原报错,未知 id 不会路由到无关连接。
-	if s.followLatestTerminal {
+	if s.followLatestTerminal.Load() {
 		for _, session := range sessions {
 			if session.GroupSessionID == trimmedSessionID {
 				if target, ok := latestSessionInGroup(sessions, groupKey(session), trimmedSessionID); ok {
@@ -103,7 +104,7 @@ func (s *Service) GetConnectedSession(sessionID string) (ConnectedSession, error
 
 // followLatestSession 在跟随模式下把解析结果重定向到同服务器最新终端。
 func (s *Service) followLatestSession(sessions []ConnectedSession, session ConnectedSession) ConnectedSession {
-	if !s.followLatestTerminal || session.IsLatestTerminal {
+	if !s.followLatestTerminal.Load() || session.IsLatestTerminal {
 		return session
 	}
 	if target, ok := latestSessionInGroup(sessions, groupKey(session), session.SessionID); ok {
