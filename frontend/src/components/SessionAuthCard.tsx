@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { ShieldAlert, ShieldQuestion, KeyRound, Eye, EyeOff, Clipboard, type LucideIcon } from 'lucide-react';
 import { Z } from '../constants/zIndex';
 import type { SessionAuthPrompt } from '../hooks/useSessionConnections.ts';
@@ -23,6 +23,8 @@ interface SessionAuthCardProps {
 // 因此批量连接时 N 个会话会得到 N 张卡片，互不干扰。
 export default function SessionAuthCard({ prompt, isActive, t, onResolve }: SessionAuthCardProps) {
   const isPassword = prompt.kind === 'password';
+  const passwordInputId = useId();
+  const rememberInputId = useId();
   const [value, setValue] = useState('');
   const [checked, setChecked] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -167,7 +169,7 @@ export default function SessionAuthCard({ prompt, isActive, t, onResolve }: Sess
             <div className={`relative ${prompt.checkboxLabel ? 'mb-3' : 'mb-[18px]'}`}>
               <input
                 ref={inputRef}
-                id="session-auth-password"
+                id={passwordInputId}
                 name="session-auth-password"
                 autoComplete="off"
                 className="input rounded-[var(--radius-sm)] text-sm"
@@ -193,9 +195,9 @@ export default function SessionAuthCard({ prompt, isActive, t, onResolve }: Sess
               ><Clipboard size={16} /></button>
             </div>
             {prompt.checkboxLabel && (
-              <label htmlFor="session-auth-remember" className="flex items-center gap-2 mb-[18px] text-[12.5px] text-secondary cursor-pointer">
+              <label htmlFor={rememberInputId} className="flex items-center gap-2 mb-[18px] text-[12.5px] text-secondary cursor-pointer">
                 <input
-                  id="session-auth-remember"
+                  id={rememberInputId}
                   name="session-auth-remember"
                   autoComplete="off"
                   type="checkbox"

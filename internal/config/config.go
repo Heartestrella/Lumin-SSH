@@ -498,7 +498,17 @@ func (c *ConfigManager) GetConnectionsMasked() []Connection {
 	return conns
 }
 
+// SaveConnection 保留给不处理错误的内部兼容调用；Wails 等交互入口应使用
+// SaveConnectionWithError，避免把写盘失败误报成保存成功。
 func (c *ConfigManager) SaveConnection(conn Connection, noSync bool) Connection {
+	saved, err := c.SaveConnectionWithError(conn, noSync)
+	if err != nil {
+		log.Printf("[SaveConnection] failed to save connections: %v", err)
+	}
+	return saved
+}
+
+func (c *ConfigManager) SaveConnectionWithError(conn Connection, noSync bool) (Connection, error) {
 	sanitizeConnectionProxyConfig(&conn)
 	conn.TerminalEncoding = normalizeTerminalEncoding(conn.TerminalEncoding)
 	c.mu.Lock()
@@ -552,7 +562,7 @@ func (c *ConfigManager) SaveConnection(conn Connection, noSync bool) Connection 
 	}
 
 	if err := c.saveConnectionsFile(conns); err != nil {
-		log.Printf("[SaveConnection] failed to save connections: %v", err)
+		return conn, err
 	}
 	// 同 id 重新保存视为复活：清掉旧墓碑，避免被同步再压回去
 	c.clearConnectionTombstonesLocked([]string{conn.ID})
@@ -563,7 +573,7 @@ func (c *ConfigManager) SaveConnection(conn Connection, noSync bool) Connection 
 		c.bumpSnapshotTime()
 		go c.AutoSync()
 	}
-	return conn
+	return conn, nil
 }
 
 // saveConnectionsFile 加密并原子写入连接列表，调用方需持有 c.mu
@@ -1748,18 +1758,35 @@ func (c *ConfigManager) GetSyncMode() string {
 		return "webdav"
 	}
 	var mode string
-	if json.Unmarshal(data, &mode) != nil || mode == "" {
+	if json.Unmarshal(data, &mode) != nil {
 		return "webdav"
 	}
-	return mode
+	if normalized, ok := normalizeSyncMode(mode); ok {
+		return normalized
+	}
+	return "webdav"
 }
 
 // SetSyncMode 设置自动同步模式
 func (c *ConfigManager) SetSyncMode(mode string) error {
+	mode, ok := normalizeSyncMode(mode)
+	if !ok {
+		return fmt.Errorf("invalid sync mode: %q", mode)
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	data, _ := json.Marshal(mode)
 	return atomicWriteFile(c.syncModeFile, data, 0600)
+}
+
+func normalizeSyncMode(mode string) (string, bool) {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	switch mode {
+	case "webdav", "r2", "ftp", "sftp", "all":
+		return mode, true
+	default:
+		return mode, false
+	}
 }
 
 func (c *ConfigManager) GetAutoSyncEnabled() bool {
@@ -1994,8 +2021,17 @@ func (c *ConfigManager) MigrateAITasksDir(targetDir string) error {
 	} else {
 		sourceDir = filepath.Join(c.configDir, "tasks")
 	}
-	if absTarget == sourceDir {
+	absSource, err := filepath.Abs(sourceDir)
+	if err != nil {
+		return fmt.Errorf("无法解析当前路径: %w", err)
+	}
+	if samePath(absTarget, absSource) {
 		return fmt.Errorf("目标目录与当前目录相同")
+	}
+	// 目标若位于源目录内，Walk 会不断把刚复制出的目标再次当成源内容，
+	// 最终形成递归目录树；而后续 RemoveAll(sourceDir) 也会把目标一起删除。
+	if isPathWithin(absTarget, absSource) {
+		return fmt.Errorf("目标目录不能位于当前目录内部")
 	}
 	// 确保目标目录存在
 	if err := os.MkdirAll(absTarget, 0755); err != nil {
@@ -2012,12 +2048,12 @@ func (c *ConfigManager) MigrateAITasksDir(targetDir string) error {
 		}
 	}
 	// 源目录不存在或为空时直接切换路径
-	sourceEntries, err := os.ReadDir(sourceDir)
+	sourceEntries, err := os.ReadDir(absSource)
 	if err != nil || len(sourceEntries) == 0 {
 		return c.SetTasksDir(absTarget)
 	}
 	// 复制全部内容
-	if err := copyDir(sourceDir, absTarget); err != nil {
+	if err := copyDir(absSource, absTarget); err != nil {
 		return fmt.Errorf("迁移失败: %w", err)
 	}
 	// 验证: 对比新旧目录条目数一致
@@ -2033,10 +2069,23 @@ func (c *ConfigManager) MigrateAITasksDir(targetDir string) error {
 		return err
 	}
 	// 删除旧目录数据, 失败仅记录不阻断（数据已在新目录）
-	if err := os.RemoveAll(sourceDir); err != nil {
+	if err := os.RemoveAll(absSource); err != nil {
 		log.Printf("[MigrateAITasksDir] 清理旧目录失败: %v (数据已迁移到 %s)", err, absTarget)
 	}
 	return nil
+}
+
+func samePath(a, b string) bool {
+	rel, err := filepath.Rel(a, b)
+	return err == nil && rel == "."
+}
+
+func isPathWithin(path, parent string) bool {
+	rel, err := filepath.Rel(parent, path)
+	if err != nil || rel == "." {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
 }
 
 func copyDir(source, target string) error {
@@ -2232,6 +2281,9 @@ func (c *ConfigManager) GetQuickCommands() string {
 
 // SaveQuickCommands 保存快捷命令列表（JSON 字符串），触发云端同步
 func (c *ConfigManager) SaveQuickCommands(jsonStr string) error {
+	if !json.Valid([]byte(strings.TrimSpace(jsonStr))) {
+		return fmt.Errorf("invalid quick commands JSON")
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	err := atomicWriteFile(c.quickCmdFile, []byte(jsonStr), 0600)
@@ -2244,6 +2296,9 @@ func (c *ConfigManager) SaveQuickCommands(jsonStr string) error {
 
 // SaveQuickCommandsLocal 保存快捷命令列表到本地，不触发云端同步
 func (c *ConfigManager) SaveQuickCommandsLocal(jsonStr string) error {
+	if !json.Valid([]byte(strings.TrimSpace(jsonStr))) {
+		return fmt.Errorf("invalid quick commands JSON")
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return atomicWriteFile(c.quickCmdFile, []byte(jsonStr), 0600)
@@ -2262,6 +2317,9 @@ func (c *ConfigManager) GetParamHistory() string {
 
 // SaveParamHistory 保存参数历史
 func (c *ConfigManager) SaveParamHistory(jsonStr string) error {
+	if !json.Valid([]byte(strings.TrimSpace(jsonStr))) {
+		return fmt.Errorf("invalid parameter history JSON")
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return atomicWriteFile(c.paramHistFile, []byte(jsonStr), 0600)
@@ -2578,6 +2636,12 @@ func (c *ConfigManager) GetCommandHistory(sessionId string) string {
 func (c *ConfigManager) SaveCommandHistory(sessionId, jsonStr string) error {
 	// 防止路径穿越：保留 local_/serial_ 前缀（见 historyFileName）
 	sessionId = historyFileName(sessionId)
+	if strings.TrimSpace(sessionId) == "" {
+		return fmt.Errorf("missing sessionId")
+	}
+	if !json.Valid([]byte(strings.TrimSpace(jsonStr))) {
+		return fmt.Errorf("invalid command history JSON")
+	}
 	path := filepath.Join(c.historyDir, sessionId+".json")
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -2597,6 +2661,9 @@ func (c *ConfigManager) GetGlobalCommandHistory() string {
 
 // SaveGlobalCommandHistory 保存全局命令历史
 func (c *ConfigManager) SaveGlobalCommandHistory(jsonStr string) error {
+	if !json.Valid([]byte(strings.TrimSpace(jsonStr))) {
+		return fmt.Errorf("invalid global command history JSON")
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return atomicWriteFile(c.globalHistFile, []byte(jsonStr), 0600)

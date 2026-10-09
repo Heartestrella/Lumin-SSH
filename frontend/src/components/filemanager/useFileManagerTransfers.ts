@@ -472,13 +472,20 @@ export function useFileManagerTransfers(deps: ReturnType<typeof useFileManagerCo
       }
       patchQueueItem({ status: 'uploading', updatedAt: Date.now() });
       try {
-        await window?.go?.wailsapp?.App?.UploadLocalPathsCompressed?.(
+        const uploadLocalPathsCompressed = window?.go?.wailsapp?.App?.UploadLocalPathsCompressed;
+        if (typeof uploadLocalPathsCompressed !== 'function') {
+          throw new Error(t('上传失败'));
+        }
+        await uploadLocalPathsCompressed(
           sessionId,
           queueId,
           Math.max(1, settings.maxChunksPerFile),
           localPaths,
           uploadTargetPath,
         );
+        if (abortedUploadIdsRef.current.has(queueId)) {
+          throw new Error(UPLOAD_ABORT_SENTINEL);
+        }
         patchQueueItem({
           status: 'completed',
           phase: 'completed',
@@ -669,6 +676,9 @@ export function useFileManagerTransfers(deps: ReturnType<typeof useFileManagerCo
             throw new Error(failedChunks.map(({ result }) => String(result.status === 'rejected' ? result.reason : '')).slice(0, 3).join('；'));
           }
           await AppGo.CompleteChunkedUploadFile(taskId, fileId);
+          if (abortedUploadIdsRef.current.has(queueId)) {
+            throw new Error(UPLOAD_ABORT_SENTINEL);
+          }
           completedFiles++;
           patchQueueItem(queueId, {
             status: 'completed',
@@ -1078,6 +1088,9 @@ export function useFileManagerTransfers(deps: ReturnType<typeof useFileManagerCo
               throw new Error(t('下载失败'));
             }
             await downloadFileToLocal(sessionId, queueId, remotePath, localPath, optionsJSON);
+            if (abortedUploadIdsRef.current.has(queueId)) {
+              throw new Error(UPLOAD_ABORT_SENTINEL);
+            }
             patchQueueItem(queueId, {
               status: 'completed',
               progress: 100,
@@ -1101,6 +1114,9 @@ export function useFileManagerTransfers(deps: ReturnType<typeof useFileManagerCo
             }
             await downloadDirectoryToLocal(sessionId, queueId, remotePath, localPath, optionsJSON);
           }
+          if (abortedUploadIdsRef.current.has(queueId)) {
+            throw new Error(UPLOAD_ABORT_SENTINEL);
+          }
           patchQueueItem(queueId, {
             status: 'completed',
             phase: 'completed',
@@ -1110,7 +1126,9 @@ export function useFileManagerTransfers(deps: ReturnType<typeof useFileManagerCo
           });
           addToast?.(`${t('下载成功')}: ${item.name}`, 'success');
         } catch (err) {
-          const isAborted = abortedUploadIdsRef.current.has(queueId) || String(err).toLowerCase().includes('context canceled');
+          const isAborted = abortedUploadIdsRef.current.has(queueId)
+            || String(err).includes(UPLOAD_ABORT_SENTINEL)
+            || String(err).toLowerCase().includes('context canceled');
           patchQueueItem(queueId, {
             status: 'failed',
             phase: 'failed',
@@ -1122,7 +1140,9 @@ export function useFileManagerTransfers(deps: ReturnType<typeof useFileManagerCo
         }
       });
     } catch (err) {
-      const isAborted = abortedUploadIdsRef.current.has(queueId) || String(err).toLowerCase().includes('context canceled');
+      const isAborted = abortedUploadIdsRef.current.has(queueId)
+        || String(err).includes(UPLOAD_ABORT_SENTINEL)
+        || String(err).toLowerCase().includes('context canceled');
       patchQueueItem(queueId, {
         status: 'failed',
         phase: 'failed',

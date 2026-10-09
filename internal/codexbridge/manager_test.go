@@ -385,7 +385,19 @@ func TestRealCodexGatewaySmoke(t *testing.T) {
 	if executable == "" {
 		t.Skip("set CODEX_INTEGRATION_EXE to run the real Codex gateway smoke test")
 	}
-	gateway := NewGateway(nativeExecRunner{executable: executable, readOnly: true}, ".", 1)
+	if strings.TrimSpace(os.Getenv("COCKPIT_API_KEY")) == "" {
+		t.Skip("set COCKPIT_API_KEY to run the authenticated real Codex gateway smoke test")
+	}
+	var capturedCommand []string
+	runner := nativeExecRunner{
+		executable: executable,
+		readOnly:   false,
+		command: func(ctx context.Context, name string, args ...string) *exec.Cmd {
+			capturedCommand = append([]string{name}, args...)
+			return exec.CommandContext(ctx, name, args...)
+		},
+	}
+	gateway := NewGateway(runner, ".", 1)
 	sessionCWD := t.TempDir()
 	gateway.SetSessionContextResolver(func(sessionID string) SessionContext {
 		return SessionContext{LocalWorkingDirectory: sessionCWD}
@@ -406,8 +418,20 @@ func TestRealCodexGatewaySmoke(t *testing.T) {
 	defer response.Body.Close()
 	data := new(strings.Builder)
 	_, _ = io.Copy(data, response.Body)
-	if response.StatusCode != http.StatusOK || !strings.Contains(data.String(), "LUME_HTTP_GATEWAY_OK") || !strings.Contains(data.String(), "response.completed") {
+	stream := data.String()
+	createdAt := strings.Index(stream, `"type":"response.created"`)
+	deltaAt := strings.Index(stream, `"type":"response.output_text.delta"`)
+	completedAt := strings.Index(stream, `"type":"response.completed"`)
+	doneAt := strings.Index(stream, "data: [DONE]")
+	if response.StatusCode != http.StatusOK || !strings.Contains(stream, "LUME_HTTP_GATEWAY_OK") ||
+		createdAt < 0 || deltaAt <= createdAt || completedAt <= deltaAt || doneAt <= completedAt {
 		t.Fatalf("unexpected gateway response (%d): %s", response.StatusCode, data.String())
 	}
-	t.Logf("real gateway session working_dir=%q SSE: %s", sessionCWD, data.String())
+	joinedCommand := strings.Join(capturedCommand, " ")
+	if !strings.Contains(joinedCommand, " -C "+sessionCWD+" ") || !strings.Contains(joinedCommand, " --approve-for-me ") {
+		t.Fatalf("unexpected Codex command: %q", joinedCommand)
+	}
+	t.Logf("real gateway authenticated=%t command=%q", os.Getenv("COCKPIT_API_KEY") != "", joinedCommand)
+	t.Logf("real gateway event offsets created=%d delta=%d completed=%d done=%d", createdAt, deltaAt, completedAt, doneAt)
+	t.Logf("real gateway session working_dir=%q full SSE:\n%s", sessionCWD, stream)
 }

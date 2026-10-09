@@ -107,6 +107,19 @@ export default function GlobalDialog({ suspendDefault = false }: GlobalDialogPro
     };
     return () => {
       delete window.lumeDialog;
+      // Provider 被替换/卸载（开发期 StrictMode、窗口关闭）时，必须结清所有
+      // 已返回给调用方的 Promise；否则调用链会永久停在 await lumeDialog.*。
+      const pending = dialogsRef.current;
+      dialogsRef.current = [];
+      pending.forEach((dialog) => {
+        if (dialog.type === 'alert') {
+          dialog.onClose?.();
+        } else if (dialog.type === 'choice') {
+          dialog.onClose?.();
+        } else {
+          dialog.onCancel?.();
+        }
+      });
     };
   }, [pushDialog]);
 

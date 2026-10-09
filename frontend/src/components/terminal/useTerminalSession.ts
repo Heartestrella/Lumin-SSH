@@ -639,7 +639,7 @@ export function useTerminalSession(deps: {
       },
       armCommandFinish: () => { awaitingCommandFinishRef.current = true; },
     });
-    term.onData((data) => {
+    const dataDisposable = term.onData((data) => {
       if ((statusRef.current === 'closed' || statusRef.current === 'error') && (data.includes('\r') || data.includes('\n'))) {
         window.dispatchEvent(new CustomEvent('ssh-reconnect-trigger', { detail: sessionId }));
         return;
@@ -786,6 +786,7 @@ export function useTerminalSession(deps: {
       screenAltModeSetDisposable.dispose();
       screenAltModeResetDisposable.dispose();
       resizeDisposable.dispose();
+      dataDisposable.dispose();
       try { linkProviderDisposable.dispose(); } catch (_) {}
       try { searchResultsDisposable.dispose(); } catch (_) {}
       try { searchAddon.dispose(); } catch (_) {}
@@ -964,6 +965,22 @@ export function useTerminalSession(deps: {
     if (!isActive || !containerRef.current) return;
 
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+    const panelTimers = new Set<ReturnType<typeof setTimeout>>();
+    const panelRAFs = new Set<number>();
+    const schedulePanelTimer = (delay: number) => {
+      const timer = setTimeout(() => {
+        panelTimers.delete(timer);
+        safeFit(true);
+      }, delay);
+      panelTimers.add(timer);
+    };
+    const schedulePanelRAF = (callback: () => void) => {
+      const raf = requestAnimationFrame(() => {
+        panelRAFs.delete(raf);
+        callback();
+      });
+      panelRAFs.add(raf);
+    };
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
         if (entry.contentRect.width > 0 && entry.contentRect.height > 0) {
@@ -989,14 +1006,14 @@ export function useTerminalSession(deps: {
     const handleAIPanelChange = () => {
       // 侧边栏/AI面板展开或收起时，采用多阶段自适应确保尺寸与底部锚定完全就绪
       safeFit(true);
-      requestAnimationFrame(() => {
+      schedulePanelRAF(() => {
         safeFit(true);
-        requestAnimationFrame(() => {
+        schedulePanelRAF(() => {
           safeFit(true);
         });
       });
-      setTimeout(() => safeFit(true), 60);
-      setTimeout(() => safeFit(true), 150);
+      schedulePanelTimer(60);
+      schedulePanelTimer(150);
     };
     window.addEventListener('ai-panel-visibility-changed', handleAIPanelChange);
 
@@ -1004,6 +1021,8 @@ export function useTerminalSession(deps: {
       if (resizeTimer) clearTimeout(resizeTimer);
       if (windowResizeTimer) clearTimeout(windowResizeTimer);
       observer.disconnect();
+      panelTimers.forEach((timer) => clearTimeout(timer));
+      panelRAFs.forEach((raf) => cancelAnimationFrame(raf));
       window.removeEventListener('resize', handleWindowResize);
       window.removeEventListener('ai-panel-visibility-changed', handleAIPanelChange);
     };
@@ -1016,12 +1035,12 @@ export function useTerminalSession(deps: {
     // 多阶段重适应：立即执行、RAF 执行、double-RAF 以及 60ms/150ms/300ms 延迟，
     // 覆盖标签切换后容器 display:flex 恢复、子标签栏渲染以及 CSS 布局完全就绪的各个阶段
     safeFit(true);
+    let raf2: number | null = null;
     const raf1 = requestAnimationFrame(() => {
       safeFit(true);
-      const raf2 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
         safeFit(true);
       });
-      return () => cancelAnimationFrame(raf2);
     });
     const t1 = setTimeout(() => safeFit(true), 60);
     const t2 = setTimeout(() => safeFit(true), 150);
@@ -1029,6 +1048,7 @@ export function useTerminalSession(deps: {
 
     return () => {
       cancelAnimationFrame(raf1);
+      if (raf2 !== null) cancelAnimationFrame(raf2);
       clearTimeout(t1);
       clearTimeout(t2);
       clearTimeout(t3);

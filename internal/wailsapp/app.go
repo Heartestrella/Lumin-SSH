@@ -356,9 +356,30 @@ func (a *App) GetConnectionPassword(id string) (string, error) {
 	return resolvedConn.Password, nil
 }
 
-// SaveConnection saves a new or existing connection
-func (a *App) SaveConnection(conn config.Connection, noSync bool) config.Connection {
-	return a.configManager.SaveConnection(conn, noSync)
+// SaveConnection saves a new or existing connection.
+// Wails bindings are a trust boundary: callers can bypass the React form, so
+// reject malformed endpoints before they are persisted and later retried.
+func (a *App) SaveConnection(conn config.Connection, noSync bool) (config.Connection, error) {
+	if a == nil || a.configManager == nil {
+		return config.Connection{}, fmt.Errorf("config manager unavailable")
+	}
+	if err := validateConnectionForSave(conn); err != nil {
+		return config.Connection{}, err
+	}
+	return a.configManager.SaveConnectionWithError(conn, noSync)
+}
+
+func validateConnectionForSave(conn config.Connection) error {
+	if strings.TrimSpace(conn.Host) == "" {
+		return fmt.Errorf("host is required")
+	}
+	if conn.Port < 1 || conn.Port > 65535 {
+		return fmt.Errorf("port must be between 1 and 65535")
+	}
+	if strings.TrimSpace(conn.CredentialID) == "" && strings.TrimSpace(conn.Username) == "" {
+		return fmt.Errorf("username is required when no credential is selected")
+	}
+	return nil
 }
 
 // DeleteConnection removes a connection by ID
@@ -622,6 +643,12 @@ func (a *App) SetConnectionOS(id string, os string) error {
 
 // ConnectSSH establishes an SSH connection
 func (a *App) ConnectSSH(sessionId string, connId string) error {
+	if strings.TrimSpace(sessionId) == "" || strings.TrimSpace(connId) == "" {
+		return fmt.Errorf("sessionId and connId are required")
+	}
+	if a == nil || a.configManager == nil || a.sshManager == nil {
+		return fmt.Errorf("SSH service unavailable")
+	}
 	conn, ok := a.configManager.GetConnectionByID(connId)
 	if !ok {
 		return fmt.Errorf("connection not found")
@@ -859,12 +886,45 @@ func (a *App) ListSerialPorts() ([]string, error) {
 
 // ConnectLocal spawns a local command process and pipes it to the WebSocket path.
 func (a *App) ConnectLocal(sessionId string, name string, shellPath string, cwd string) error {
+	if strings.TrimSpace(sessionId) == "" || strings.TrimSpace(shellPath) == "" {
+		return fmt.Errorf("sessionId and shellPath are required")
+	}
+	if a == nil || a.sshManager == nil {
+		return fmt.Errorf("SSH service unavailable")
+	}
 	return a.sshManager.ConnectLocal(sessionId, name, shellPath, cwd)
 }
 
 // ConnectSerial connects to a local serial port and pipes it to the WebSocket path.
 func (a *App) ConnectSerial(sessionId string, name string, portName string, baudRate int, dataBits int, stopBits float64, parity string) error {
+	if err := validateSerialConfig(sessionId, portName, baudRate, dataBits, stopBits, parity); err != nil {
+		return err
+	}
+	if a == nil || a.sshManager == nil {
+		return fmt.Errorf("SSH service unavailable")
+	}
 	return a.sshManager.ConnectSerial(sessionId, name, portName, baudRate, dataBits, stopBits, parity)
+}
+
+func validateSerialConfig(sessionID, portName string, baudRate, dataBits int, stopBits float64, parity string) error {
+	if strings.TrimSpace(sessionID) == "" || strings.TrimSpace(portName) == "" {
+		return fmt.Errorf("sessionId and portName are required")
+	}
+	if baudRate <= 0 {
+		return fmt.Errorf("baudRate must be positive")
+	}
+	if dataBits < 5 || dataBits > 8 {
+		return fmt.Errorf("dataBits must be between 5 and 8")
+	}
+	if stopBits != 1 && stopBits != 1.5 && stopBits != 2 {
+		return fmt.Errorf("stopBits must be 1, 1.5, or 2")
+	}
+	switch strings.ToLower(strings.TrimSpace(parity)) {
+	case "none", "odd", "even", "mark", "space":
+		return nil
+	default:
+		return fmt.Errorf("unsupported parity %q", parity)
+	}
 }
 
 // SystemInfo retrieves basic system probe info
