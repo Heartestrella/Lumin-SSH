@@ -15,7 +15,7 @@
     "lint:fix": "oxlint --fix src"
   },
   "overrides": {
-    "dompurify": "^3.4.13"
+    "dompurify": "^3.4.16"
   },
   "dependencies": {
     "@codemirror/lang-css": "^6.3.1",
@@ -29,16 +29,16 @@
     "@codemirror/legacy-modes": "^6.5.4",
     "@codemirror/theme-one-dark": "^6.1.2",
     "@tailwindcss/vite": "^4.3.3",
-    "@uiw/react-codemirror": "^4.25.11",
+    "@uiw/react-codemirror": "^4.25.12",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-search": "^0.16.0",
     "@xterm/xterm": "^6.0.0",
-    "lucide-react": "^1.45.0",
+    "lucide-react": "^1.52.0",
     "monaco-editor": "^0.56.0",
     "react": "^19.2.8",
     "react-dom": "^19.3.0",
     "react-markdown": "^10.1.0",
-    "react-virtuoso": "^4.18.13",
+    "react-virtuoso": "^4.18.16",
     "rehype-sanitize": "^6.0.0",
     "remark-gfm": "^4.0.0",
     "tailwind-merge": "^3.7.0",
@@ -46,14 +46,14 @@
     "use-stick-to-bottom": "1.1.6"
   },
   "devDependencies": {
-    "@babel/parser": "^8.0.4",
-    "@types/node": "^26.5.1",
+    "@babel/parser": "^8.0.6",
+    "@types/node": "^26.6.4",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.0",
     "esbuild": "^0.28.2",
-    "oxlint": "^1.81.0",
+    "oxlint": "^1.86.0",
     "typescript": "^5.9.3",
-    "vite": "^8.3.0"
+    "vite": "^8.3.2"
   }
 }
