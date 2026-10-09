@@ -529,6 +529,7 @@ export function useAIProviderQuickEdit({
       name: !prev.name.trim() || isPresetDerivedName(prev.name) ? preset.label : prev.name,
       provider: preset.provider,
       baseUrl: preset.baseUrl,
+      apiKey: preset.apiKeyRequired === false ? '' : prev.apiKey,
       model: preset.defaultModel,
       cacheStrategy: preset.cacheStrategy || (preset.provider === 'Responses' ? 'model' : '5m'),
       reasoningEffort: presetCapability.reasoningEffort || 'disable',

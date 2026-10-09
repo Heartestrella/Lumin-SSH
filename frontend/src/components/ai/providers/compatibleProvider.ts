@@ -25,6 +25,27 @@ interface CapabilityRule {
 }
 
 const capabilityRules: CapabilityRule[] = [
+  // Codex App Server 网关模型使用统一能力约束；后缀规则兼容网关侧的版本化模型名。
+  ...['gpt-5.6', 'gpt-5.5', 'gpt-6'].map((matchPrefix) => ({
+    matchPrefix,
+    capability: {
+      known: true,
+      supportsReasoningEffort: ['low', 'medium', 'high'],
+      reasoningEffort: 'medium',
+      reasoningMode: 'effort',
+      supportsTemperature: false,
+    },
+  })),
+  ...['-sol', '-terra', '-luna', '-astra'].map((matchContains) => ({
+    matchContains,
+    capability: {
+      known: true,
+      supportsReasoningEffort: ['low', 'medium', 'high'],
+      reasoningEffort: 'medium',
+      reasoningMode: 'effort',
+      supportsTemperature: false,
+    },
+  })),
   {
     matchPrefix: 'gpt-5.4',
     capability: {

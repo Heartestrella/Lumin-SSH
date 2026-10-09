@@ -73,7 +73,29 @@ type aiProviderModelCapabilityRule struct {
 	Capability    AIProviderModelCapability
 }
 
+var codexBridgeCompatibleModelCapability = AIProviderModelCapability{
+	Known:                true,
+	SupportsPromptCache:  true,
+	PromptCacheRetention: "24h",
+	SupportsReasoningEffort: []string{
+		"low",
+		"medium",
+		"high",
+	},
+	ReasoningEffort:     "medium",
+	ReasoningMode:       AIProviderReasoningModeEffort,
+	SupportsTemperature: false,
+}
+
 var compatibleProviderModelCapabilityRules = []aiProviderModelCapabilityRule{
+	// Codex App Server 网关模型使用统一能力约束；后缀规则兼容网关侧的版本化模型名。
+	{MatchPrefix: "gpt-5.6", Capability: codexBridgeCompatibleModelCapability},
+	{MatchPrefix: "gpt-5.5", Capability: codexBridgeCompatibleModelCapability},
+	{MatchPrefix: "gpt-6", Capability: codexBridgeCompatibleModelCapability},
+	{MatchContains: "-sol", Capability: codexBridgeCompatibleModelCapability},
+	{MatchContains: "-terra", Capability: codexBridgeCompatibleModelCapability},
+	{MatchContains: "-luna", Capability: codexBridgeCompatibleModelCapability},
+	{MatchContains: "-astra", Capability: codexBridgeCompatibleModelCapability},
 	{
 		MatchPrefix: "gpt-5.4",
 		Capability: AIProviderModelCapability{
@@ -148,19 +170,7 @@ var compatibleProviderModelCapabilityRules = []aiProviderModelCapabilityRule{
 	},
 	{
 		MatchContains: "codex",
-		Capability: AIProviderModelCapability{
-			Known:                true,
-			SupportsPromptCache:  true,
-			PromptCacheRetention: "24h",
-			SupportsReasoningEffort: []string{
-				"low",
-				"medium",
-				"high",
-			},
-			ReasoningEffort:     "medium",
-			ReasoningMode:       AIProviderReasoningModeEffort,
-			SupportsTemperature: false,
-		},
+		Capability:    codexBridgeCompatibleModelCapability,
 	},
 	{
 		MatchExact: "o4-mini-high",
@@ -531,6 +541,11 @@ var modelContextWindowRules = []aiProviderModelCapabilityRule{
 	// OpenAI：gpt-5-chat 走普通 completions 通道，窗口更小，需排在 gpt-5 前缀之前
 	{MatchPrefix: "gpt-5-chat", Capability: AIProviderModelCapability{ContextWindow: 128000}},
 	{MatchPrefix: "gpt-5", Capability: AIProviderModelCapability{ContextWindow: 400000}},
+	{MatchPrefix: "gpt-6", Capability: AIProviderModelCapability{ContextWindow: 400000}},
+	{MatchContains: "-sol", Capability: AIProviderModelCapability{ContextWindow: 400000}},
+	{MatchContains: "-terra", Capability: AIProviderModelCapability{ContextWindow: 400000}},
+	{MatchContains: "-luna", Capability: AIProviderModelCapability{ContextWindow: 400000}},
+	{MatchContains: "-astra", Capability: AIProviderModelCapability{ContextWindow: 400000}},
 	{MatchContains: "codex", Capability: AIProviderModelCapability{ContextWindow: 400000}},
 	{MatchPrefix: "o3", Capability: AIProviderModelCapability{ContextWindow: 200000}},
 	{MatchPrefix: "o4", Capability: AIProviderModelCapability{ContextWindow: 200000}},

@@ -144,7 +144,7 @@ export default function QuickEditBasicTab({
           menuRef={channelPresetFieldRef}
           showSelectedIcon={false}
         />
-        {activeChannelPreset ? (
+        {activeChannelPreset?.apiKeyRequired !== false && activeChannelPreset ? (
           <div className="text-tertiary text-xs leading-[1.4] [overflow-wrap:anywhere]">
             {t('已自动填充地址与模型，只需填写 API 密钥')}
             {activeChannelPreset.keyUrl ? (

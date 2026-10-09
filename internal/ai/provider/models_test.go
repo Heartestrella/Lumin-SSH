@@ -22,6 +22,9 @@ func TestGetModelContextWindow(t *testing.T) {
 		expected int
 	}{
 		{"Responses", "gpt-5.2", 400000},
+		{"Compatible", "gpt-5.6-sol", 400000},
+		{"Compatible", "gpt-6-astra", 400000},
+		{"Compatible", "vendor-model-terra", 400000},
 		{"Compatible", "gpt-5-chat", 128000},
 		{"Compatible", "gpt-5-chat-latest", 128000},
 		{"Messages", "claude-sonnet-5", 200000},
@@ -42,6 +45,36 @@ func TestGetModelContextWindow(t *testing.T) {
 	for _, testCase := range cases {
 		if got := GetModelContextWindow(testCase.provider, testCase.modelID); got != testCase.expected {
 			t.Fatalf("GetModelContextWindow(%q, %q) = %d, want %d", testCase.provider, testCase.modelID, got, testCase.expected)
+		}
+	}
+}
+
+func TestResolveCodexBridgeModelCapability(t *testing.T) {
+	models := []string{
+		"gpt-5.6-sol",
+		"gpt-5.6-terra",
+		"gpt-5.6-luna",
+		"gpt-6-sol",
+		"gpt-6-astra",
+		"gpt-6-luna",
+		"gpt-5.5",
+		"custom-astra",
+		"gpt-codex",
+	}
+	wantEfforts := []string{"low", "medium", "high"}
+	for _, modelID := range models {
+		capability := ResolveModelCapability("Compatible", modelID)
+		if !capability.Known {
+			t.Errorf("ResolveModelCapability(%q) should be known", modelID)
+		}
+		if !reflect.DeepEqual(capability.SupportsReasoningEffort, wantEfforts) {
+			t.Errorf("ResolveModelCapability(%q) efforts = %#v, want %#v", modelID, capability.SupportsReasoningEffort, wantEfforts)
+		}
+		if capability.ReasoningEffort != "medium" {
+			t.Errorf("ResolveModelCapability(%q) default effort = %q, want medium", modelID, capability.ReasoningEffort)
+		}
+		if capability.SupportsTemperature {
+			t.Errorf("ResolveModelCapability(%q) should not support temperature", modelID)
 		}
 	}
 }
