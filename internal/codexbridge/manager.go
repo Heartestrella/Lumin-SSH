@@ -116,12 +116,7 @@ func (m *Manager) Apply(c Config) {
 	}
 	m.mu.Unlock()
 	go func() {
-		m.opMu.Lock()
-		defer m.opMu.Unlock()
-		m.closeGateway()
-		if c.Enabled {
-			m.ensure(generation, c)
-		}
+		m.reconcile(generation, c)
 	}()
 }
 
@@ -139,11 +134,27 @@ func (m *Manager) Refresh() {
 	m.mu.Unlock()
 	if c.Enabled {
 		go func() {
-			m.opMu.Lock()
-			defer m.opMu.Unlock()
-			m.closeGateway()
-			m.ensure(generation, c)
+			m.reconcile(generation, c)
 		}()
+	}
+}
+
+// reconcile serializes gateway lifecycle changes and discards operations that
+// arrived at opMu after a newer Apply/Refresh. Without the generation check an
+// older disable/restart goroutine can close a newer gateway and leave its
+// published status pointing at a dead listener.
+func (m *Manager) reconcile(generation uint64, c Config) {
+	m.opMu.Lock()
+	defer m.opMu.Unlock()
+	m.mu.Lock()
+	current := generation == m.generation
+	m.mu.Unlock()
+	if !current {
+		return
+	}
+	m.closeGateway()
+	if c.Enabled {
+		m.ensure(generation, c)
 	}
 }
 

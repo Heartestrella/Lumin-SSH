@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -39,6 +40,7 @@ type SessionContextResolver func(sessionID string) SessionContext
 type nativeExecRunner struct {
 	executable string
 	readOnly   bool
+	command    func(context.Context, string, ...string) *exec.Cmd
 }
 type codexJSONEvent struct {
 	Type string `json:"type"`
@@ -66,8 +68,19 @@ func (r nativeExecRunner) Run(ctx context.Context, request ExecRequest, onText f
 	// repositories. The host has already validated -C as an existing local
 	// directory, so do not let the CLI's repository guard reject it.
 	args = append(args, "--skip-git-repo-check", "--ephemeral", "--json", "-")
-	cmd := exec.Command(r.executable, args...)
+	command := exec.CommandContext
+	if r.command != nil {
+		command = r.command
+	}
+	cmd := command(ctx, r.executable, args...)
 	configureCommand(cmd)
+	// Let os/exec own the cancellation watcher. In particular, this guarantees
+	// Cancel cannot run after Wait has reaped the process (and, on Windows,
+	// avoids sending taskkill to a PID that may already have been reused).
+	cmd.Cancel = func() error {
+		killProcessTree(cmd)
+		return nil
+	}
 	cmd.Stdin = strings.NewReader(request.Prompt)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -92,15 +105,8 @@ func (r nativeExecRunner) Run(ctx context.Context, request ExecRequest, onText f
 			}
 		}
 	}()
-	cancelDone := make(chan struct{})
-	go func() {
-		select {
-		case <-ctx.Done():
-			killProcessTree(cmd)
-		case <-cancelDone:
-		}
-	}()
 	var result ExecResult
+	sawTurnCompleted := false
 	s := bufio.NewScanner(stdout)
 	s.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	var parseErr error
@@ -119,6 +125,7 @@ func (r nativeExecRunner) Run(ctx context.Context, request ExecRequest, onText f
 				}
 			}
 		case "turn.completed":
+			sawTurnCompleted = true
 			result = ExecResult{event.Usage.InputTokens, event.Usage.CachedInputTokens, event.Usage.OutputTokens}
 		}
 		if parseErr != nil {
@@ -129,7 +136,6 @@ func (r nativeExecRunner) Run(ctx context.Context, request ExecRequest, onText f
 		parseErr = fmt.Errorf("read Codex output: %w", err)
 	}
 	waitErr := cmd.Wait()
-	close(cancelDone)
 	<-stderrDone
 	if ctx.Err() != nil {
 		return result, ctx.Err()
@@ -143,6 +149,9 @@ func (r nativeExecRunner) Run(ctx context.Context, request ExecRequest, onText f
 			detail = waitErr.Error()
 		}
 		return result, fmt.Errorf("Codex exec failed: %s", detail)
+	}
+	if !sawTurnCompleted {
+		return result, errors.New("Codex exec ended without a turn.completed event")
 	}
 	return result, nil
 }
@@ -250,8 +259,14 @@ func (g *Gateway) handleResponses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var request responsesRequest
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8*1024*1024)).Decode(&request); err != nil {
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8*1024*1024))
+	if err := decoder.Decode(&request); err != nil {
 		writeJSONError(w, 400, "invalid_request_error", "invalid Responses request: "+err.Error())
+		return
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		writeJSONError(w, 400, "invalid_request_error", "invalid Responses request: trailing data after JSON object")
 		return
 	}
 	prompt, err := buildPrompt(request.Instructions, request.Input, 20)

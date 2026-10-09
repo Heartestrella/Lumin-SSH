@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -105,6 +106,102 @@ func TestNormalizeBaseURL(t *testing.T) {
 	}
 	if got := NormalizeBaseURL("http://localhost:5050/v1/"); got != "http://localhost:5050/v1" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestManagerStaleLifecycleOperationDoesNotCloseCurrentGateway(t *testing.T) {
+	gateway := NewGateway(mockRunner{run: func(_ context.Context, _ ExecRequest, _ func(string) error) (ExecResult, error) {
+		return ExecResult{}, nil
+	}}, ".", 1)
+	baseURL, err := gateway.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gateway.Close(context.Background())
+
+	m := NewManager()
+	m.mu.Lock()
+	m.gateway = gateway
+	m.generation = 2
+	m.mu.Unlock()
+
+	// This represents an older Apply goroutine reaching opMu after generation 2
+	// has already installed its gateway. It must not close the current listener.
+	m.reconcile(1, Config{})
+	resp, err := http.Get(baseURL + "/models")
+	if err != nil {
+		t.Fatalf("stale lifecycle operation closed current gateway: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("models status = %d", resp.StatusCode)
+	}
+}
+
+func TestGatewayRejectsTrailingJSONWithoutRunningCodex(t *testing.T) {
+	var runs atomic.Int32
+	gateway := NewGateway(mockRunner{run: func(_ context.Context, _ ExecRequest, _ func(string) error) (ExecResult, error) {
+		runs.Add(1)
+		return ExecResult{}, nil
+	}}, ".", 1)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"input":"hello"} trailing`))
+	gateway.handleResponses(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", recorder.Code, recorder.Body.String())
+	}
+	if runs.Load() != 0 {
+		t.Fatalf("runner invoked %d times for malformed request", runs.Load())
+	}
+}
+
+func TestNativeExecRunnerRequiresTurnCompleted(t *testing.T) {
+	t.Setenv("LUMETERM_CODEX_HELPER_MODE", "missing-completion")
+	runner := nativeExecRunner{
+		executable: os.Args[0],
+		command: func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+			return exec.CommandContext(ctx, os.Args[0], "-test.run=^TestNativeExecHelperProcess$", "--")
+		},
+	}
+	_, err := runner.Run(context.Background(), ExecRequest{Model: "test", ReasoningEffort: "low", Prompt: "hello", WorkingDir: "."}, func(string) error { return nil })
+	if err == nil || !strings.Contains(err.Error(), "turn.completed") {
+		t.Fatalf("error = %v, want missing turn.completed", err)
+	}
+}
+
+func TestNativeExecRunnerCancellationTerminatesProcess(t *testing.T) {
+	t.Setenv("LUMETERM_CODEX_HELPER_MODE", "block")
+	runner := nativeExecRunner{
+		executable: os.Args[0],
+		command: func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+			return exec.CommandContext(ctx, os.Args[0], "-test.run=^TestNativeExecHelperProcess$", "--")
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := runner.Run(ctx, ExecRequest{Model: "test", ReasoningEffort: "low", Prompt: "hello", WorkingDir: "."}, func(string) error { return nil })
+		done <- err
+	}()
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("error = %v, want context.Canceled", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("canceled Codex process was not reaped")
+	}
+}
+
+func TestNativeExecHelperProcess(t *testing.T) {
+	switch os.Getenv("LUMETERM_CODEX_HELPER_MODE") {
+	case "missing-completion":
+		os.Exit(0)
+	case "block":
+		time.Sleep(30 * time.Second)
+		os.Exit(0)
 	}
 }
 

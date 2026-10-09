@@ -708,6 +708,33 @@ func TestGetSFTPClientEntryFieldsReadUnderLock(t *testing.T) {
 	<-done
 }
 
+// GetClientEntry is used by file, transfer, probe and terminal operations. Its
+// snapshot of Client/SFTP must be taken while initSFTPClient's writer lock is
+// still held; copying the entry pointer and dereferencing it after RUnlock is a
+// data race even when the pointer value being written remains nil.
+func TestGetClientEntryFieldsReadUnderLock(t *testing.T) {
+	m := NewSSHManager()
+	entry := &sshClientEntry{}
+	m.sessions["race-client-entry"] = &SessionData{ConnKey: "race-key"}
+	m.clients["race-key"] = entry
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 500; i++ {
+			m.mu.Lock()
+			entry.SFTP = nil
+			m.mu.Unlock()
+		}
+	}()
+	for i := 0; i < 500; i++ {
+		if _, _, err := m.GetClientEntry("race-client-entry"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	<-done
+}
+
 // cmdline 可能包含换行与 marker 子串(最典型:运行本脚本的 sh,其 argv 就是
 // 整段脚本)。脚本端须把换行一并转空格保证记录单行;解析端 marker 必须整行
 // 精确匹配,否则 section 被 cmdline 内嵌的 "---PROCS2---" 等子串提前截断。

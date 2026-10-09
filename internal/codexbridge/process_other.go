@@ -2,6 +2,11 @@
 
 package codexbridge
 
-import "os/exec"
+import (
+	"os/exec"
+	"syscall"
+)
 
-func configureCommand(_ *exec.Cmd) {}
+func configureCommand(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+}

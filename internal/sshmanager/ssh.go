@@ -248,9 +248,9 @@ type SSHManager struct {
 	// recentClosed 已关闭终端 id → 关闭现场记录(所属 connKey/时间),带 TTL 与容量
 	// 上限,由 mu 保护。供外部 MCP「终端跟随最新」把已关闭标签的失效 session_id
 	// 兜底解析到同服务器最新终端,未记录的 id 不会路由到任何连接。
-	recentClosed     map[string]closedTerminalRecord
-	mu               sync.RWMutex
-	pendingMu        sync.Mutex
+	recentClosed map[string]closedTerminalRecord
+	mu           sync.RWMutex
+	pendingMu    sync.Mutex
 	// connectLocks 按 connKey 串行化 Connect 的拨号流程:防止前端手动/自动重连与
 	// MCP reconnect_server 并发对同一服务器各建一条 transport(重复连接泄漏)。
 	// connectLocksMu 保护 connectLocks 表本身;表随服务器数量增长,量级很小(数百以内)。
@@ -1124,11 +1124,13 @@ func (m *SSHManager) GetClientEntry(sessionId string) (*ssh.Client, *sftp.Client
 		return nil, nil, fmt.Errorf("session not found")
 	}
 	entry, ok := m.clients[s.ConnKey]
-	m.mu.RUnlock()
 	if !ok {
+		m.mu.RUnlock()
 		return nil, nil, fmt.Errorf("client not found for session")
 	}
-	return entry.Client, entry.SFTP, nil
+	client, sftpClient := entry.Client, entry.SFTP
+	m.mu.RUnlock()
+	return client, sftpClient, nil
 }
 
 // getSFTPClient 查找 session 对应的 SFTP 客户端；初始化中时短暂等待。
