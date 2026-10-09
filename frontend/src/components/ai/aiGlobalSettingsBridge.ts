@@ -64,6 +64,9 @@ export type AIGlobalSettings = {
   commandActionButtonOrder: CommandActionButtonOrder
   toolResultTokenThreshold: number
   aiRequestProxyId: string
+  codexBridgeEnabled: boolean
+  codexBridgeBaseUrl: string
+  codexExecutablePath: string
   updatedAt: number
   proxyNodes: ProxyNode[]
 }
@@ -112,6 +115,9 @@ const DEFAULT_AI_GLOBAL_SETTINGS: AIGlobalSettings = {
   commandActionButtonOrder: 'terminate-continue',
   toolResultTokenThreshold: 350000,
   aiRequestProxyId: '',
+  codexBridgeEnabled: true,
+  codexBridgeBaseUrl: 'http://127.0.0.1:5050/v1',
+  codexExecutablePath: '',
   updatedAt: 0,
   proxyNodes: [],
 }
@@ -370,6 +376,11 @@ export function normalizeAIGlobalSettings(settings: unknown): AIGlobalSettings {
     approvalButtonOrder: normalizeApprovalButtonOrder(s.approvalButtonOrder),
     commandActionButtonOrder: normalizeCommandActionButtonOrder(s.commandActionButtonOrder),
     aiRequestProxyId,
+    codexBridgeEnabled: s.codexBridgeEnabled !== false,
+    codexBridgeBaseUrl: typeof s.codexBridgeBaseUrl === 'string' && s.codexBridgeBaseUrl.trim()
+      ? s.codexBridgeBaseUrl.trim().replace(/\/+$/, '')
+      : DEFAULT_AI_GLOBAL_SETTINGS.codexBridgeBaseUrl,
+    codexExecutablePath: typeof s.codexExecutablePath === 'string' ? s.codexExecutablePath.trim() : '',
     updatedAt,
     proxyNodes,
   }

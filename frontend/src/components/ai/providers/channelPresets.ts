@@ -27,8 +27,8 @@ const QWEN_PRESET_KEY_URL = 'https://bailian.console.aliyun.com/?apiKey=1#/api-k
 export const aiChannelPresets: AIChannelPreset[] = [
   {
     value: 'codex-app-server',
-    label: 'Codex (App Server Bridge)',
-    provider: 'Compatible',
+    label: 'Codex (Built-in Gateway)',
+    provider: 'Responses',
     baseUrl: 'http://127.0.0.1:5050/v1',
     defaultModel: 'gpt-5.6-sol',
     models: ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-6-sol', 'gpt-6-astra', 'gpt-6-luna', 'gpt-5.5'],

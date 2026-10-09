@@ -64,6 +64,7 @@ type Service struct {
 	aiDeltaBuf                map[string]*aiDeltaBuffer
 	aiHTTPClientMu            sync.Mutex
 	aiHTTPClients             map[string]*http.Client
+	codexBridgeBaseURL        func() string
 }
 
 // aiDeltaChunk 是流式输出的一个待发片段。按到达顺序记录 kind，
@@ -124,6 +125,15 @@ func (a *Service) SetThemeToolDelegate(delegate ThemeToolDelegate) {
 		return
 	}
 	a.themeToolDelegate = delegate
+}
+
+// SetCodexBridgeBaseURLResolver supplies the ephemeral URL of the in-process
+// gateway without persisting its random port in user settings.
+func (a *Service) SetCodexBridgeBaseURLResolver(resolve func() string) {
+	if a == nil {
+		return
+	}
+	a.codexBridgeBaseURL = resolve
 }
 
 func atomicWriteFile(path string, data []byte, perm os.FileMode) error {

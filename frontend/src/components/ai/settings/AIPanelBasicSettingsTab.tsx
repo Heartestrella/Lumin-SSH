@@ -1,5 +1,6 @@
 import { FileText, FolderOpen, Loader2, RotateCcw } from 'lucide-react';
 import type React from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from '../../../i18n.ts';
 import { Button, Select } from '../../ui';
 import { handleInputDragSelectAll } from '../inputDragSelect.ts';
@@ -30,6 +31,9 @@ export interface AIPanelBasicSettingsTabProps {
   handleResetTasksDir: () => void;
   handleRevealAIDebugLog: () => void;
   aiDebugLogEnabled: boolean;
+  codexBridgeEnabled: boolean;
+  codexBridgeBaseUrl: string;
+  codexExecutablePath: string;
   onSaveGlobalAISettings?: (settings: Record<string, unknown>) => Promise<unknown> | void;
 }
 
@@ -55,13 +59,107 @@ export default function AIPanelBasicSettingsTab({
   handleResetTasksDir,
   handleRevealAIDebugLog,
   aiDebugLogEnabled,
+  codexBridgeEnabled,
+  codexBridgeBaseUrl,
+  codexExecutablePath,
   onSaveGlobalAISettings,
 }: AIPanelBasicSettingsTabProps) {
   const { t } = useTranslation();
   const toolResultTokenThresholdDisplay = formatTokenCountInMillions(toolResultTokenThreshold);
+  const [codexStatus, setCodexStatus] = useState<Record<string, unknown> | null>(null);
+  const [bridgeUrl, setBridgeUrl] = useState(codexBridgeBaseUrl);
+  const [codexPath, setCodexPath] = useState(codexExecutablePath);
+
+  useEffect(() => setBridgeUrl(codexBridgeBaseUrl), [codexBridgeBaseUrl]);
+  useEffect(() => setCodexPath(codexExecutablePath), [codexExecutablePath]);
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      const bridge = window?.go?.wailsapp?.AIBindings as unknown as {
+        GetCodexBridgeStatus?: () => Promise<Record<string, unknown>>;
+      };
+      const next = await bridge?.GetCodexBridgeStatus?.().catch(() => null);
+      if (active && next) setCodexStatus(next);
+    };
+    void load();
+    const timer = window.setInterval(load, 2000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, []);
+  const codexState = String(codexStatus?.state || (codexBridgeEnabled ? 'starting' : 'stopped'));
+  const codexStateLabel: Record<string, string> = {
+    running: '内置网关运行中',
+    external: '运行中（外部实例）',
+    starting: '正在探测 / 启动',
+    not_installed: '未安装',
+    error: '启动失败',
+    stopped: '已停用',
+  };
 
   return (
     <>
+      <div className="grid gap-1">
+        <div className="text-[18px] font-bold text-primary leading-[1.3]">Codex 桥</div>
+      </div>
+      <div className="bg-canvas p-4 rounded-[var(--radius-md)] border border-line grid gap-3">
+        <div className="flex justify-between items-center gap-4">
+          <div className="min-w-0">
+            <div className="text-primary text-base font-bold">Codex 内置 HTTP 网关</div>
+            <div className="text-tertiary text-sm leading-[1.6]">应用启动后自动查找 Codex CLI，并通过随机本地端口提供 Responses 流式接口。</div>
+          </div>
+          <ToggleSwitchControl
+            checked={codexBridgeEnabled}
+            onChange={() => onSaveGlobalAISettings?.({ codexBridgeEnabled: !codexBridgeEnabled })}
+          />
+        </div>
+        <div className="border-t border-line" />
+        <div className="grid gap-1.5">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-primary text-base font-bold">桥状态</span>
+            <span className="px-2 py-0.5 rounded-[var(--radius-sm)] border border-line text-sm text-secondary">
+              {codexStateLabel[codexState] || codexState}
+            </span>
+          </div>
+          {codexStatus?.message ? <div className="text-tertiary text-sm break-words">{String(codexStatus.message)}</div> : null}
+          {codexStatus?.baseUrl && codexState === 'running' ? (
+            <div className="text-tertiary text-sm font-mono break-all">{String(codexStatus.baseUrl)}</div>
+          ) : null}
+        </div>
+        <div className="border-t border-line" />
+        <label className="grid gap-1.5 text-sm text-secondary">
+          外部网关地址（保留默认值即使用内置网关）
+          <input
+            value={bridgeUrl}
+            onChange={(event) => setBridgeUrl(event.target.value)}
+            onBlur={() => onSaveGlobalAISettings?.({ codexBridgeBaseUrl: bridgeUrl.trim() })}
+            placeholder="留空使用内置随机端口网关"
+            className="w-full rounded-[var(--radius-sm)] border border-line bg-canvas text-primary px-2.5 py-2 font-mono outline-none focus:border-focus"
+          />
+        </label>
+        <label className="grid gap-1.5 text-sm text-secondary">
+          Codex 可执行文件（可选）
+          <input
+            value={codexPath}
+            onChange={(event) => setCodexPath(event.target.value)}
+            onBlur={() => onSaveGlobalAISettings?.({ codexExecutablePath: codexPath.trim() })}
+            placeholder="自动从 PATH 和常见安装目录查找"
+            className="w-full rounded-[var(--radius-sm)] border border-line bg-canvas text-primary px-2.5 py-2 font-mono outline-none focus:border-focus"
+          />
+        </label>
+        <div className="flex gap-2 flex-wrap">
+          <Button variant="secondary" onClick={async () => {
+            const bridge = window?.go?.wailsapp?.AIBindings as unknown as {
+              RefreshCodexBridge?: () => Promise<Record<string, unknown>>;
+            };
+            const next = await bridge?.RefreshCodexBridge?.().catch(() => null);
+            if (next) setCodexStatus(next);
+          }}>重新探测</Button>
+          {codexState === 'not_installed' ? (
+            <Button variant="secondary" onClick={() => window.runtime?.BrowserOpenURL?.(
+              String(codexStatus?.installUrl || 'https://developers.openai.com/codex/cli/'),
+            )}>安装 Codex CLI</Button>
+          ) : null}
+        </div>
+      </div>
       <div className="grid gap-1">
         <div className="text-[18px] font-bold text-primary leading-[1.3]">{t('基本')}</div>
       </div>

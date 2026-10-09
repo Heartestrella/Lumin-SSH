@@ -21,6 +21,7 @@ import (
 	"time"
 
 	ai "lumeterm/internal/ai"
+	"lumeterm/internal/codexbridge"
 	"lumeterm/internal/config"
 	"lumeterm/internal/externaledit"
 	"lumeterm/internal/localopen"
@@ -117,6 +118,7 @@ type App struct {
 	externalEdit            *externaledit.Manager
 	icon                    []byte
 	mcpReporter             *mcpActivityReporter
+	codexBridge             *codexbridge.Manager
 }
 
 type GitHubContributorAuthor struct {
@@ -154,6 +156,7 @@ func NewApp() *App {
 		sshManager:    sshmanager.NewSSHManager(),
 		configManager: config.NewConfigManager(),
 		wsManager:     wsbuffer.NewManager(),
+		codexBridge:   codexbridge.NewManager(),
 	}
 	app.mcpReporter = newMCPActivityReporter(app)
 	app.configManager.SetProgramDir(getProgramDirectory())
@@ -173,6 +176,8 @@ func (a *App) startup(ctx context.Context) {
 	a.sshManager.SetCtx(ctx) // Give SSH manager access to Wails events
 	a.sshManager.SetApp(a)   // Give SSH manager access to WebSocket registry
 	a.configManager.SetWailsCtx(ctx)
+	aiSettings := a.configManager.GetAIGlobalSettings()
+	a.codexBridge.Apply(codexbridge.Config{Enabled: aiSettings.CodexBridgeEnabled, BaseURL: aiSettings.CodexBridgeBaseURL, ExecutablePath: aiSettings.CodexExecutablePath})
 	a.sshManager.ApplyTransferTuning(a.configManager.GetTransferTuningSettings())
 	if err := a.ensureMainLivenessLock(); err != nil {
 		log.Printf("failed to acquire main liveness lock: %v", err)
@@ -222,6 +227,9 @@ func (a *App) shutdown() {
 		}
 		if a.externalEdit != nil {
 			a.externalEdit.StopAll()
+		}
+		if a.codexBridge != nil {
+			a.codexBridge.Close()
 		}
 		// 断开所有 SSH 会话，避免服务器侧遗留僵尸会话。
 		if a.sshManager != nil {

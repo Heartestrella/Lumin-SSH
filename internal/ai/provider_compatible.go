@@ -274,6 +274,7 @@ func (a *Service) RequestAIProviderModelsWithProfile(jsonStr string) ([]string, 
 			return nil, err
 		}
 	}
+	profile = a.resolveBuiltinCodexProfile(profile)
 	profile.BaseURL = strings.TrimSpace(profile.BaseURL)
 	profile.APIKey = strings.TrimSpace(profile.APIKey)
 	client, err := a.newAIHTTPClientForProfile(&profile, 20*time.Second)

@@ -42,49 +42,52 @@ type AIProxyNode struct {
 }
 
 type AIGlobalSettings struct {
-	CurrentProviderID                    string                        `json:"currentProviderId"`
-	AutoApprovalEnabled                  bool                          `json:"autoApprovalEnabled"`
-	AlwaysAllowReadOnly                  bool                          `json:"alwaysAllowReadOnly"`
-	AlwaysAllowReadOnlyOutsideWorkspace  bool                          `json:"alwaysAllowReadOnlyOutsideWorkspace"`
-	AlwaysAllowWrite                     bool                          `json:"alwaysAllowWrite"`
-	AlwaysAllowWriteOutsideWorkspace     bool                          `json:"alwaysAllowWriteOutsideWorkspace"`
-	AlwaysAllowWriteProtected            bool                          `json:"alwaysAllowWriteProtected"`
-	AlwaysAllowExecute                   bool                          `json:"alwaysAllowExecute"`
-	ExecuteApprovalMode                  string                        `json:"executeApprovalMode"`
-	AllowedCommands                      []string                      `json:"allowedCommands,omitempty"`
-	DeniedCommands                       []string                      `json:"deniedCommands,omitempty"`
-	SlashCommands                        []AISlashCommand              `json:"slashCommands,omitempty"`
-	CollaborationPromptPresets           []AICollaborationPromptPreset `json:"collaborationPromptPresets,omitempty"`
-	SystemPromptPresets                  []AISystemPromptPreset        `json:"systemPromptPresets,omitempty"`
-	CollaborationExtraPrompt             string                        `json:"collaborationExtraPrompt,omitempty"`
-	AlwaysAllowMcp                       bool                          `json:"alwaysAllowMcp"`
-	AlwaysAllowModeSwitch                bool                          `json:"alwaysAllowModeSwitch"`
-	AlwaysAllowSubtasks                  bool                          `json:"alwaysAllowSubtasks"`
-	AlwaysAllowFollowupQuestions         bool                          `json:"alwaysAllowFollowupQuestions"`
-	SoundEnabled                         bool                          `json:"soundEnabled"`
-	SoundVolume                          float64                       `json:"soundVolume,omitempty"`
-	MCPEnabled                           bool                          `json:"mcpEnabled"`
-	MCPAllowBrowserCalls                 bool                          `json:"mcpAllowBrowserCalls"`
-	MCPRequireApproval                   bool                          `json:"mcpRequireApproval"`
-	MCPActivityVisible                   bool                          `json:"mcpActivityVisible"`
+	CurrentProviderID                   string                        `json:"currentProviderId"`
+	AutoApprovalEnabled                 bool                          `json:"autoApprovalEnabled"`
+	AlwaysAllowReadOnly                 bool                          `json:"alwaysAllowReadOnly"`
+	AlwaysAllowReadOnlyOutsideWorkspace bool                          `json:"alwaysAllowReadOnlyOutsideWorkspace"`
+	AlwaysAllowWrite                    bool                          `json:"alwaysAllowWrite"`
+	AlwaysAllowWriteOutsideWorkspace    bool                          `json:"alwaysAllowWriteOutsideWorkspace"`
+	AlwaysAllowWriteProtected           bool                          `json:"alwaysAllowWriteProtected"`
+	AlwaysAllowExecute                  bool                          `json:"alwaysAllowExecute"`
+	ExecuteApprovalMode                 string                        `json:"executeApprovalMode"`
+	AllowedCommands                     []string                      `json:"allowedCommands,omitempty"`
+	DeniedCommands                      []string                      `json:"deniedCommands,omitempty"`
+	SlashCommands                       []AISlashCommand              `json:"slashCommands,omitempty"`
+	CollaborationPromptPresets          []AICollaborationPromptPreset `json:"collaborationPromptPresets,omitempty"`
+	SystemPromptPresets                 []AISystemPromptPreset        `json:"systemPromptPresets,omitempty"`
+	CollaborationExtraPrompt            string                        `json:"collaborationExtraPrompt,omitempty"`
+	AlwaysAllowMcp                      bool                          `json:"alwaysAllowMcp"`
+	AlwaysAllowModeSwitch               bool                          `json:"alwaysAllowModeSwitch"`
+	AlwaysAllowSubtasks                 bool                          `json:"alwaysAllowSubtasks"`
+	AlwaysAllowFollowupQuestions        bool                          `json:"alwaysAllowFollowupQuestions"`
+	SoundEnabled                        bool                          `json:"soundEnabled"`
+	SoundVolume                         float64                       `json:"soundVolume,omitempty"`
+	MCPEnabled                          bool                          `json:"mcpEnabled"`
+	MCPAllowBrowserCalls                bool                          `json:"mcpAllowBrowserCalls"`
+	MCPRequireApproval                  bool                          `json:"mcpRequireApproval"`
+	MCPActivityVisible                  bool                          `json:"mcpActivityVisible"`
 	// MCPTerminalFollowLatest 控制外部 MCP 会话解析是否自动跟随同服务器最新终端。
 	// 旧配置缺少该键时,LoadAIGlobalSettings 会保留默认值(true),即默认跟随。
-	MCPTerminalFollowLatest              bool                          `json:"mcpTerminalFollowLatest"`
-	TerminalIsolation                    bool                          `json:"terminalIsolation"`
-	ConfirmDelete                        bool                          `json:"confirmDelete"`
-	ContinueAfterToolRejection           bool                          `json:"continueAfterToolRejection"`
-	ConversationAutoBackupEnabled        bool                          `json:"conversationAutoBackupEnabled"`
-	ConversationAutoBackupRetentionCount int                           `json:"conversationAutoBackupRetentionCount,omitempty"`
-	MessageNavEnabled                    bool                          `json:"messageNavEnabled"`
-	AIWorkspaceTabNumbersOnly            bool                          `json:"aiWorkspaceTabNumbersOnly"`
-	ApprovalButtonOrder                  string                        `json:"approvalButtonOrder"`
-	CommandActionButtonOrder             string                        `json:"commandActionButtonOrder"`
-	ToolResultTokenThreshold             int                           `json:"toolResultTokenThreshold,omitempty"`
-	AIRequestProxyID                     string                        `json:"aiRequestProxyId,omitempty"`
-	UpdatedAt                            int64                         `json:"updatedAt,omitempty"`
-	ProxyNodes                           []AIProxyNode                 `json:"proxyNodes,omitempty"`
-	AutoCondenseEnabled                  bool                          `json:"autoCondenseEnabled"`
-	AutoCondenseThresholdRatio           float64                       `json:"autoCondenseThresholdRatio,omitempty"`
+	MCPTerminalFollowLatest              bool          `json:"mcpTerminalFollowLatest"`
+	TerminalIsolation                    bool          `json:"terminalIsolation"`
+	ConfirmDelete                        bool          `json:"confirmDelete"`
+	ContinueAfterToolRejection           bool          `json:"continueAfterToolRejection"`
+	ConversationAutoBackupEnabled        bool          `json:"conversationAutoBackupEnabled"`
+	ConversationAutoBackupRetentionCount int           `json:"conversationAutoBackupRetentionCount,omitempty"`
+	MessageNavEnabled                    bool          `json:"messageNavEnabled"`
+	AIWorkspaceTabNumbersOnly            bool          `json:"aiWorkspaceTabNumbersOnly"`
+	ApprovalButtonOrder                  string        `json:"approvalButtonOrder"`
+	CommandActionButtonOrder             string        `json:"commandActionButtonOrder"`
+	ToolResultTokenThreshold             int           `json:"toolResultTokenThreshold,omitempty"`
+	AIRequestProxyID                     string        `json:"aiRequestProxyId,omitempty"`
+	CodexBridgeEnabled                   bool          `json:"codexBridgeEnabled"`
+	CodexBridgeBaseURL                   string        `json:"codexBridgeBaseUrl,omitempty"`
+	CodexExecutablePath                  string        `json:"codexExecutablePath,omitempty"`
+	UpdatedAt                            int64         `json:"updatedAt,omitempty"`
+	ProxyNodes                           []AIProxyNode `json:"proxyNodes,omitempty"`
+	AutoCondenseEnabled                  bool          `json:"autoCondenseEnabled"`
+	AutoCondenseThresholdRatio           float64       `json:"autoCondenseThresholdRatio,omitempty"`
 	// AIDebugLogEnabled 控制是否把每轮 AI 请求与原始响应流写入 ai.log。
 	// 旧配置缺少该键时,LoadAIGlobalSettings 会保留默认值(true),即默认开启。
 	AIDebugLogEnabled bool `json:"aiDebugLogEnabled"`
@@ -120,6 +123,8 @@ func DefaultAIGlobalSettings() AIGlobalSettings {
 		ToolResultTokenThreshold:             350000,
 		AutoCondenseEnabled:                  false,
 		AutoCondenseThresholdRatio:           DefaultAICondenseThresholdRatio,
+		CodexBridgeEnabled:                   true,
+		CodexBridgeBaseURL:                   "http://127.0.0.1:5050/v1",
 		AIDebugLogEnabled:                    true,
 	}
 }
@@ -395,6 +400,11 @@ func LoadAIProxyNodes(configDir string) []AIProxyNode {
 
 func NormalizeAIGlobalSettings(settings AIGlobalSettings) AIGlobalSettings {
 	settings.CurrentProviderID = strings.TrimSpace(settings.CurrentProviderID)
+	settings.CodexBridgeBaseURL = strings.TrimRight(strings.TrimSpace(settings.CodexBridgeBaseURL), "/")
+	if settings.CodexBridgeBaseURL == "" {
+		settings.CodexBridgeBaseURL = DefaultAIGlobalSettings().CodexBridgeBaseURL
+	}
+	settings.CodexExecutablePath = strings.TrimSpace(settings.CodexExecutablePath)
 	settings.SlashCommands = NormalizeAISlashCommands(settings.SlashCommands)
 	settings.CollaborationPromptPresets = NormalizeAICollaborationPromptPresets(settings.CollaborationPromptPresets)
 	settings.SystemPromptPresets = NormalizeAISystemPromptPresets(settings.SystemPromptPresets)

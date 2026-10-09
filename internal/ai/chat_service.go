@@ -1891,18 +1891,39 @@ func (a *Service) getAIProviderProfileByID(providerID string) (AIProviderProfile
 	if trimmedProviderID != "" {
 		for _, profile := range state.Providers {
 			if profile.ID == trimmedProviderID {
-				return profile, nil
+				return a.resolveBuiltinCodexProfile(profile), nil
 			}
 		}
 	}
 	if strings.TrimSpace(state.CurrentProviderID) != "" {
 		for _, profile := range state.Providers {
 			if profile.ID == state.CurrentProviderID {
-				return profile, nil
+				return a.resolveBuiltinCodexProfile(profile), nil
 			}
 		}
 	}
-	return state.Providers[0], nil
+	return a.resolveBuiltinCodexProfile(state.Providers[0]), nil
+}
+
+func (a *Service) resolveBuiltinCodexProfile(profile AIProviderProfile) AIProviderProfile {
+	model := strings.ToLower(strings.TrimSpace(profile.Model))
+	baseURL := strings.TrimRight(strings.TrimSpace(profile.BaseURL), "/")
+	isCodexModel := strings.HasPrefix(model, "gpt-5.6") || strings.HasPrefix(model, "gpt-5.5") || strings.HasPrefix(model, "gpt-6")
+	if strings.TrimSpace(profile.APIKey) != "" || !isCodexModel {
+		return profile
+	}
+	if baseURL != "" && baseURL != "http://127.0.0.1:5050/v1" {
+		return profile
+	}
+	settings := a.configManager.GetAIGlobalSettings()
+	profile.Provider = "Responses"
+	profile.BaseURL = settings.CodexBridgeBaseURL
+	if a.codexBridgeBaseURL != nil {
+		if runtimeURL := strings.TrimRight(strings.TrimSpace(a.codexBridgeBaseURL()), "/"); runtimeURL != "" {
+			profile.BaseURL = runtimeURL
+		}
+	}
+	return profile
 }
 
 func (a *Service) getAIProviderProfileForConversation(conversationID string) (AIProviderProfile, error) {

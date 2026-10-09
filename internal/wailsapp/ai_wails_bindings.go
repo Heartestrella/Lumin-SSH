@@ -13,6 +13,7 @@ import (
 	"time"
 
 	ai "lumeterm/internal/ai"
+	"lumeterm/internal/codexbridge"
 	"lumeterm/internal/config"
 	"lumeterm/internal/localopen"
 	"lumeterm/internal/mcp"
@@ -166,6 +167,9 @@ func (b *AIBindings) runtime() *ai.Service {
 			sshDelegate = aiSSHDelegate{manager: b.app.sshManager}
 		}
 		b.runtimeApp = ai.NewService(context.Background(), configDir, sessionProvider, sshDelegate)
+		if b.app != nil && b.app.codexBridge != nil {
+			b.runtimeApp.SetCodexBridgeBaseURLResolver(b.app.codexBridge.BaseURL)
+		}
 	}
 	if b.app != nil {
 		b.runtimeApp.SetContext(b.app.ctx)
@@ -367,6 +371,13 @@ func (b *AIBindings) SaveAIGlobalSettings(jsonStr string) error {
 		return err
 	}
 	current := b.runtime().GetAIGlobalSettings()
+	if b != nil && b.app != nil && b.app.codexBridge != nil {
+		b.app.codexBridge.Apply(codexbridge.Config{
+			Enabled:        current.CodexBridgeEnabled,
+			BaseURL:        current.CodexBridgeBaseURL,
+			ExecutablePath: current.CodexExecutablePath,
+		})
+	}
 	if previous.MCPEnabled != current.MCPEnabled || previous.MCPAllowBrowserCalls != current.MCPAllowBrowserCalls ||
 		previous.MCPTerminalFollowLatest != current.MCPTerminalFollowLatest {
 		mcpbridge.ApplyServiceState(b.app.configManager.GetConfigDir(), newMCPHost(b.app))
@@ -388,6 +399,21 @@ func (b *AIBindings) SaveAIGlobalSettings(jsonStr string) error {
 		go b.app.configManager.AutoSync()
 	}
 	return nil
+}
+
+func (b *AIBindings) GetCodexBridgeStatus() codexbridge.Status {
+	if b == nil || b.app == nil || b.app.codexBridge == nil {
+		return codexbridge.Status{State: "stopped", BaseURL: codexbridge.DefaultBaseURL}
+	}
+	return b.app.codexBridge.Status()
+}
+
+func (b *AIBindings) RefreshCodexBridge() codexbridge.Status {
+	if b != nil && b.app != nil && b.app.codexBridge != nil {
+		b.app.codexBridge.Refresh()
+		return b.app.codexBridge.Status()
+	}
+	return codexbridge.Status{State: "stopped", BaseURL: codexbridge.DefaultBaseURL}
 }
 
 func (b *AIBindings) GetAIProviderState() ai.AIProviderState {

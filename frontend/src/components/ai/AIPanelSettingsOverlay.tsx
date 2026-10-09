@@ -27,6 +27,9 @@ interface GlobalAISettingsLike {
   proxyNodes?: Array<{ id?: string; name?: string; type?: string; host?: string; port?: string | number }>;
   aiRequestProxyId?: string;
   toolResultTokenThreshold?: number;
+  codexBridgeEnabled?: boolean;
+  codexBridgeBaseUrl?: string;
+  codexExecutablePath?: string;
   slashCommands?: unknown;
   [key: string]: unknown;
 }
@@ -402,6 +405,9 @@ export default function AIPanelSettingsOverlay({
                 handleResetTasksDir={handleResetTasksDir}
                 handleRevealAIDebugLog={handleRevealAIDebugLog}
                 aiDebugLogEnabled={globalAISettings?.aiDebugLogEnabled !== false}
+                codexBridgeEnabled={globalAISettings?.codexBridgeEnabled !== false}
+                codexBridgeBaseUrl={String(globalAISettings?.codexBridgeBaseUrl || 'http://127.0.0.1:5050/v1')}
+                codexExecutablePath={String(globalAISettings?.codexExecutablePath || '')}
                 onSaveGlobalAISettings={onSaveGlobalAISettings}
               />
             ) : null}
