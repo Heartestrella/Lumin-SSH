@@ -93,6 +93,11 @@ func (m *SSHManager) recordDisconnectedConn(connKey string, terminalIds []string
 		oldestParent := ""
 		var oldestTime time.Time
 		for parent, record := range m.recentDisconnects {
+			// Windows 的 time.Now 精度可能让同一批记录拥有相同时间戳。新记录与旧记录
+			// 并列时不能把刚写入的记录随机淘汰，否则后续替换它时也无法清理失败计数。
+			if parent == parentSessionId && len(m.recentDisconnects) > 1 {
+				continue
+			}
 			if oldestParent == "" || record.ClosedAt.Before(oldestTime) {
 				oldestParent = parent
 				oldestTime = record.ClosedAt
@@ -297,11 +302,11 @@ func (m *SSHManager) ReconnectDisconnectedSession(sessionId string) (ReconnectOu
 	}
 	log.Printf("[mcp-reconnect] 会话已重连 parent=%s connKey=%s terminals=%d failed=%d", record.ParentSessionId, record.ConnKey, terminalCount, len(failedTerminals))
 	return ReconnectOutcome{
-		SessionId:        record.ParentSessionId,
-		ConnKey:          record.ConnKey,
-		OldToNew:         oldToNew,
-		TerminalCount:    terminalCount,
-		FailedTerminals:  failedTerminals,
+		SessionId:       record.ParentSessionId,
+		ConnKey:         record.ConnKey,
+		OldToNew:        oldToNew,
+		TerminalCount:   terminalCount,
+		FailedTerminals: failedTerminals,
 	}, nil
 }
 

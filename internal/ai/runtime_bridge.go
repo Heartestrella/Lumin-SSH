@@ -132,6 +132,7 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	if err != nil {
 		return fmt.Errorf("open temp file: %w", err)
 	}
+	defer os.Remove(tmpFile)
 	if _, err := file.Write(data); err != nil {
 		file.Close()
 		return fmt.Errorf("write temp file: %w", err)

@@ -301,7 +301,7 @@ func (h *ClientHub) appendServerLog(connection *serverConnection, message string
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	current := h.connections[connection.key]
-	if current == nil {
+	if current != connection {
 		return
 	}
 	current.runtime.ErrorHistory = append(current.runtime.ErrorHistory, entry)
@@ -318,7 +318,7 @@ func (h *ClientHub) markConnectionError(connection *serverConnection, err error)
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	current := h.connections[connection.key]
-	if current == nil {
+	if current != connection {
 		return
 	}
 	current.runtime.Status = "disconnected"

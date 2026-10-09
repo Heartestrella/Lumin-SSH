@@ -105,7 +105,7 @@ func buildAISOCKS5DialContext(node AIProxyNode) (func(context.Context, string, s
 		}
 	}
 	forward := &net.Dialer{
-		Timeout:   0,
+		Timeout:   10 * time.Second,
 		KeepAlive: 30 * time.Second,
 	}
 	dialer, err := xproxy.SOCKS5("tcp", address, auth, forward)

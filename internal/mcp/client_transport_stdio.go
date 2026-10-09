@@ -25,6 +25,8 @@ type stdioTransport struct {
 	started     atomic.Bool
 	closed      atomic.Bool
 	closeOnce   sync.Once
+	startMu     sync.Mutex
+	writeMu     sync.Mutex
 	nextID      atomic.Int64
 	pendingMu   sync.Mutex
 	pending     map[string]chan rpcResponse
@@ -41,6 +43,11 @@ func newStdioTransport(config ServerConfig, appendLog func(string)) *stdioTransp
 }
 
 func (t *stdioTransport) Start(ctx context.Context) error {
+	t.startMu.Lock()
+	defer t.startMu.Unlock()
+	if t.closed.Load() {
+		return io.ErrClosedPipe
+	}
 	if t.started.Load() {
 		return nil
 	}
@@ -67,13 +74,19 @@ func (t *stdioTransport) Start(ctx context.Context) error {
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		_ = stdin.Close()
 		return err
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
+		_ = stdin.Close()
+		_ = stdout.Close()
 		return err
 	}
 	if err := cmd.Start(); err != nil {
+		_ = stdin.Close()
+		_ = stdout.Close()
+		_ = stderr.Close()
 		return err
 	}
 	t.cmd = cmd
@@ -88,6 +101,8 @@ func (t *stdioTransport) Start(ctx context.Context) error {
 }
 
 func (t *stdioTransport) Close() error {
+	t.startMu.Lock()
+	defer t.startMu.Unlock()
 	var closeErr error
 	t.closeOnce.Do(func() {
 		t.closed.Store(true)
@@ -142,7 +157,10 @@ func (t *stdioTransport) Request(ctx context.Context, method string, params map[
 	if err != nil {
 		return err
 	}
-	if _, err := t.stdin.Write(append(data, '\n')); err != nil {
+	t.writeMu.Lock()
+	_, err = t.stdin.Write(append(data, '\n'))
+	t.writeMu.Unlock()
+	if err != nil {
 		return err
 	}
 	if strings.HasPrefix(method, "notifications/") {

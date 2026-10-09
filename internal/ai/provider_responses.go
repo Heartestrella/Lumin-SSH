@@ -25,19 +25,23 @@ type aiChatResponsesUsage struct {
 }
 
 type aiChatResponsesEvent struct {
-	Type        string                `json:"type"`
-	Delta       string                `json:"delta,omitempty"`
-	Response    *aiChatResponsesState `json:"response,omitempty"`
-	Usage       *aiChatResponsesUsage `json:"usage,omitempty"`
-	OutputIndex int                   `json:"output_index,omitempty"`
-	Item        map[string]any        `json:"item,omitempty"`
+	Type        string                       `json:"type"`
+	Delta       string                       `json:"delta,omitempty"`
+	Response    *aiChatResponsesState        `json:"response,omitempty"`
+	Usage       *aiChatResponsesUsage        `json:"usage,omitempty"`
+	OutputIndex int                          `json:"output_index,omitempty"`
+	Item        map[string]any               `json:"item,omitempty"`
+	Error       *aiChatCompatibleStreamError `json:"error,omitempty"`
+	Code        string                       `json:"code,omitempty"`
+	Message     string                       `json:"message,omitempty"`
 }
 
 type aiChatResponsesState struct {
-	ID         string                `json:"id,omitempty"`
-	OutputText string                `json:"output_text,omitempty"`
-	Output     []map[string]any      `json:"output,omitempty"`
-	Usage      *aiChatResponsesUsage `json:"usage,omitempty"`
+	ID         string                       `json:"id,omitempty"`
+	OutputText string                       `json:"output_text,omitempty"`
+	Output     []map[string]any             `json:"output,omitempty"`
+	Usage      *aiChatResponsesUsage        `json:"usage,omitempty"`
+	Error      *aiChatCompatibleStreamError `json:"error,omitempty"`
 }
 
 func buildAIConversationOpenAIResponsesCacheObject(responseID string, output []map[string]any, includeValues []string, store bool, capturedAt int64) *AIConversationOpenAIResponsesCacheObject {
@@ -304,6 +308,23 @@ func (a *Service) requestResponsesAIChatRound(ctx context.Context, requestID str
 		var event aiChatResponsesEvent
 		if err := json.Unmarshal([]byte(eventPayload), &event); err != nil {
 			continue
+		}
+		if event.Error != nil {
+			finalizeRoundResult()
+			return result, fmt.Errorf("%s", aiChatCompatibleErrorText(event.Error))
+		}
+		if event.Type == "error" {
+			finalizeRoundResult()
+			return result, fmt.Errorf("%s", aiChatCompatibleErrorText(&aiChatCompatibleStreamError{
+				Message: event.Message, Code: event.Code,
+			}))
+		}
+		if event.Type == "response.failed" {
+			finalizeRoundResult()
+			if event.Response != nil && event.Response.Error != nil {
+				return result, fmt.Errorf("%s", aiChatCompatibleErrorText(event.Response.Error))
+			}
+			return result, fmt.Errorf("upstream response failed")
 		}
 
 		switch event.Type {

@@ -37,6 +37,7 @@ type aiChatMessagesEvent struct {
 		Text     string `json:"text,omitempty"`
 		Thinking string `json:"thinking,omitempty"`
 	} `json:"delta,omitempty"`
+	Error *aiChatCompatibleStreamError `json:"error,omitempty"`
 }
 
 type aiChatMessagesState struct {
@@ -241,6 +242,10 @@ func (a *Service) requestMessagesAIChatRound(ctx context.Context, requestID stri
 		var event aiChatMessagesEvent
 		if err := json.Unmarshal([]byte(eventPayload), &event); err != nil {
 			continue
+		}
+		if event.Error != nil {
+			finalizeRoundResult()
+			return result, fmt.Errorf("%s", aiChatCompatibleErrorText(event.Error))
 		}
 
 		switch event.Type {

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation, type I18nKey } from '../../i18n.ts';
 import { Switch } from '../ui';
 
@@ -80,10 +80,30 @@ export default function MCPAccessView({
 }`;
   }, [mcpInfo.url, mcpInfo.transport, t, lang]);
   const [agentPromptCopied, setAgentPromptCopied] = useState(false);
+  const copyResetTimerRef = useRef<number | null>(null);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (copyResetTimerRef.current !== null) {
+        window.clearTimeout(copyResetTimerRef.current);
+        copyResetTimerRef.current = null;
+      }
+    };
+  }, []);
+
   const copyAgentPrompt = () => {
     navigator.clipboard?.writeText(agentPromptText).then(() => {
+      if (!mountedRef.current) return;
       setAgentPromptCopied(true);
-      window.setTimeout(() => setAgentPromptCopied(false), 1500);
+      if (copyResetTimerRef.current !== null) {
+        window.clearTimeout(copyResetTimerRef.current);
+      }
+      copyResetTimerRef.current = window.setTimeout(() => {
+        copyResetTimerRef.current = null;
+        setAgentPromptCopied(false);
+      }, 1500);
     }).catch(() => {});
   };
 
